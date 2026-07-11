@@ -1,0 +1,29 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;600;700&display=swap");
+@import "tailwindcss";
+
+@theme inline {
+  --color-ink: var(--ink);
+  --color-paper: var(--paper);
+  --color-line: var(--line);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-acid: var(--acid);
+  --font-sans: "Manrope", sans-serif;
+  --font-mono: "DM Mono", monospace;
+}
+
+:root {
+  --ink: #171714;
+  --paper: #f2f0e8;
+  --line: #b9b5a9;
+  --muted: #656259;
+  --accent: #ef4b32;
+  --acid: #d8f441;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+body { background: var(--paper); color: var(--ink); font-family: "Manrope", sans-serif; }
+.tool-lasso canvas, .tool-brush canvas, .tool-eraser canvas { cursor: crosshair; }
+.tool-pan canvas { cursor: grab; }
+.tool-pan canvas:active { cursor: grabbing; }
