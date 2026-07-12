@@ -3,6 +3,7 @@ node_modules/
 playwright-report/
 test-results/
 coverage/
+.local-edit/
 *.tsbuildinfo
 .env*
 !.env.example

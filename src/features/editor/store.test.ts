@@ -2,8 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ImageVersion, SourcePoint } from "./types";
 
 vi.mock("./image-data", () => ({ pixelsToDataUrl: () => "data:image/png;base64,edited" }));
+vi.mock("./generative-client", () => {
+  class GenerativeRequestError extends Error {
+    constructor(message: string, public readonly retryable: boolean) { super(message); }
+  }
+  return { GenerativeRequestError, requestGenerativeCandidate: vi.fn() };
+});
 
 import { useEditorStore } from "./store";
+import { GenerativeRequestError, requestGenerativeCandidate } from "./generative-client";
 
 const original: ImageVersion = {
   id: "original", parentVersionId: null, width: 3, height: 1, mediaType: "image/png",
@@ -14,9 +21,67 @@ const firstPixelContour: SourcePoint[] = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1
 
 describe("filled selection preview and acceptance", () => {
   beforeEach(() => {
+    vi.mocked(requestGenerativeCandidate).mockReset();
     useEditorStore.getState().loadImage(original);
     useEditorStore.getState().setBrushSize(1);
     useEditorStore.getState().setMaskSoftness(0);
+  });
+
+  it("generative processing and preview do not advance history", async () => {
+    useEditorStore.getState().fillSelection(firstPixelContour);
+    useEditorStore.getState().setEditType("remove");
+    vi.mocked(requestGenerativeCandidate).mockResolvedValue({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:image/png;base64,candidate", providerRequestId: "fake-1" });
+    expect(await useEditorStore.getState().requestGenerativePreview()).toBe(true);
+    const state = useEditorStore.getState();
+    expect(state.generativeState.status).toBe("preview");
+    expect(state.versions).toHaveLength(1);
+    expect(state.operations).toHaveLength(0);
+    expect(state.preview?.method).toBe("generative");
+  });
+
+  it("accepts one generative preview as exactly one operation and version", async () => {
+    useEditorStore.getState().fillSelection(firstPixelContour);
+    useEditorStore.getState().setEditType("restyle");
+    useEditorStore.getState().setPrompt("brushed copper");
+    vi.mocked(requestGenerativeCandidate).mockResolvedValue({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:image/png;base64,candidate", providerRequestId: "fake-2" });
+    await useEditorStore.getState().requestGenerativePreview();
+    useEditorStore.getState().acceptPreview();
+    const state = useEditorStore.getState();
+    expect(state.versions).toHaveLength(2);
+    expect(state.operations).toHaveLength(1);
+    expect(state.operations[0]).toMatchObject({ type: "restyle", method: "generative", parameters: { prompt: "brushed copper", providerRequestId: "fake-2" } });
+  });
+
+  it("retries an immutable snapshot after a retryable failure", async () => {
+    useEditorStore.getState().fillSelection(firstPixelContour);
+    useEditorStore.getState().setEditType("remove");
+    vi.mocked(requestGenerativeCandidate)
+      .mockRejectedValueOnce(new GenerativeRequestError("temporary", true))
+      .mockResolvedValueOnce({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:image/png;base64,candidate", providerRequestId: "fake-3" });
+    await useEditorStore.getState().requestGenerativePreview();
+    const failedSnapshot = useEditorStore.getState().generativeState.snapshot!;
+    expect(useEditorStore.getState().generativeState).toMatchObject({ status: "failed", retryable: true });
+    await useEditorStore.getState().retryGenerativePreview();
+    const retriedSnapshot = vi.mocked(requestGenerativeCandidate).mock.calls[1][0];
+    expect(retriedSnapshot.inputVersion.pixels).toEqual(failedSnapshot.inputVersion.pixels);
+    expect(retriedSnapshot.mask.data).toEqual(failedSnapshot.mask.data);
+    expect(useEditorStore.getState().generativeState.status).toBe("preview");
+  });
+
+  it("ignores a response superseded by a newer request", async () => {
+    useEditorStore.getState().fillSelection(firstPixelContour);
+    useEditorStore.getState().setEditType("remove");
+    const resolvers: Array<(value: { pixels: Uint8ClampedArray; dataUrl: string; providerRequestId: string }) => void> = [];
+    vi.mocked(requestGenerativeCandidate).mockImplementation(() => new Promise((resolve) => resolvers.push(resolve)));
+    const older = useEditorStore.getState().requestGenerativePreview();
+    const newer = useEditorStore.getState().requestGenerativePreview();
+    resolvers[0]({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:old", providerRequestId: "old" });
+    expect(await older).toBe(false);
+    expect(useEditorStore.getState().preview).toBeNull();
+    resolvers[1]({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:new", providerRequestId: "new" });
+    expect(await newer).toBe(true);
+    const preview = useEditorStore.getState().preview;
+    expect(preview?.method === "generative" ? preview.parameters.providerRequestId : null).toBe("new");
   });
 
   it("does not create a preview for an empty selection", () => {
@@ -50,6 +115,7 @@ describe("filled selection preview and acceptance", () => {
     expect(accepted.versions).toHaveLength(2);
     expect(accepted.operations).toHaveLength(1);
     expect(accepted.maskAssets).toHaveLength(1);
+    expect(accepted.selectionMask?.data.every((alpha) => alpha === 0)).toBe(true);
     const capturedMask = [...accepted.maskAssets[0].data];
     accepted.setTool("eraser");
     accepted.paintSelection({ x: 0, y: 0 }, { x: 0, y: 0 });
@@ -83,5 +149,34 @@ describe("filled selection preview and acceptance", () => {
     expect(state.operations).toEqual([]);
     expect(state.maskAssets).toEqual([]);
     expect(state.selectionMask?.data.every((alpha) => alpha === 0)).toBe(true);
+  });
+
+  it("undo and redo move only the current immutable version pointer", () => {
+    useEditorStore.getState().fillSelection(firstPixelContour);
+    useEditorStore.getState().createPreview();
+    useEditorStore.getState().acceptPreview();
+    const acceptedId = useEditorStore.getState().currentVersionId;
+    expect(useEditorStore.getState().undo()).toBe(true);
+    expect(useEditorStore.getState().currentVersionId).toBe("original");
+    expect(useEditorStore.getState().versions).toHaveLength(2);
+    expect(useEditorStore.getState().redo()).toBe(true);
+    expect(useEditorStore.getState().currentVersionId).toBe(acceptedId);
+  });
+
+  it("accepting after undo truncates the redo branch", () => {
+    useEditorStore.getState().fillSelection(firstPixelContour);
+    useEditorStore.getState().createPreview();
+    useEditorStore.getState().acceptPreview();
+    const abandonedId = useEditorStore.getState().currentVersionId;
+    useEditorStore.getState().undo();
+    useEditorStore.getState().fillSelection(firstPixelContour);
+    useEditorStore.getState().setColor("#00ff00");
+    useEditorStore.getState().createPreview();
+    useEditorStore.getState().acceptPreview();
+    const state = useEditorStore.getState();
+    expect(state.versions).toHaveLength(2);
+    expect(state.operations).toHaveLength(1);
+    expect(state.versions.some((version) => version.id === abandonedId)).toBe(false);
+    expect(state.canRedo()).toBe(false);
   });
 });

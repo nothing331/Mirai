@@ -12,7 +12,7 @@ The project initially targets normal users rather than professional design workf
 
 ## Current state
 
-The first browser-only vertical slice is implemented. It supports PNG/JPEG upload, a pan-and-zoom canvas, closed-contour selection with source-resolution interior filling, brush and eraser refinement, luminance-preserving deterministic recoloring, original-versus-preview comparison, explicit accept/discard, and original-dimension browser export. Accepted versions, operations, and immutable mask snapshots are kept in memory; persistence, generative editing, and undo/redo remain planned.
+The editor supports PNG/JPEG upload, pan and zoom, closed-contour selection, brush and eraser refinement, deterministic recoloring, and localized generative Remove/Restyle operations. Generative editing uses a provider-neutral server boundary, a deterministic fake provider by default, and an optional OpenAI adapter. All provider candidates pass through authoritative compositing before preview. Accepted operations, versions, and masks form linear immutable history with undo/redo, and projects can be saved to local SQLite metadata plus immutable filesystem assets, reopened, and exported as PNG or JPEG.
 
 ## v0.1 scope
 
@@ -56,10 +56,10 @@ Upload → canvas → manual mask → local recolor → generative edit → hist
 - React Konva for canvas interaction
 - Zustand for temporary editor state
 - Next.js server routes
-- Sharp for server-side image processing and export, planned
-- SQLite with Prisma or Drizzle for metadata, planned
-- local filesystem asset storage during development, planned
-- one image-edit provider behind an application-owned interface, planned
+- Sharp for server-side provider input normalization
+- SQLite via the portable `sql.js` runtime for local metadata
+- local filesystem asset storage during development
+- one image-edit provider behind an application-owned interface
 
 This starts as a feature-oriented modular monolith. A small Python segmentation service may be introduced later if automatic object selection requires it.
 

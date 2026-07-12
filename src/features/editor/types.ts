@@ -39,24 +39,48 @@ export interface MaskAsset extends ProcessingMask {
   id: string;
 }
 
-/** Candidate pixels that have not yet advanced accepted history. */
-export interface EditPreview {
+export type EditType = "recolor" | "remove" | "restyle";
+export type FakeScenario = "success" | "slow" | "retryable-error" | "fatal-error";
+
+interface PreviewBase {
   id: string;
   inputVersionId: string;
   selectionId: string;
-  color: string;
   mask: MaskAsset;
   pixels: Uint8ClampedArray;
   dataUrl: string;
 }
 
-export interface EditOperation {
+export type EditPreview = PreviewBase & (
+  | { type: "recolor"; method: "local"; parameters: { color: string } }
+  | { type: "remove" | "restyle"; method: "generative"; parameters: { prompt: string; providerRequestId: string } }
+);
+
+interface OperationBase {
   id: string;
   inputVersionId: string;
   outputVersionId: string | null;
   maskId: string;
-  type: "recolor";
-  parameters: { color: string };
-  method: "local";
   status: "draft" | "accepted" | "failed";
 }
+
+export type EditOperation = OperationBase & (
+  | { type: "recolor"; method: "local"; parameters: { color: string } }
+  | { type: "remove" | "restyle"; method: "generative"; parameters: { prompt: string; providerRequestId: string } }
+);
+
+export interface GenerativeRequestSnapshot {
+  requestId: string;
+  inputVersion: ImageVersion;
+  selectionId: string;
+  mask: ProcessingMask;
+  operation: "remove" | "restyle";
+  prompt: string;
+  scenario: FakeScenario;
+}
+
+export type GenerativePreviewState =
+  | { status: "idle"; snapshot: null; error: null; retryable: false }
+  | { status: "processing"; snapshot: GenerativeRequestSnapshot; error: null; retryable: false }
+  | { status: "preview"; snapshot: GenerativeRequestSnapshot; error: null; retryable: false }
+  | { status: "failed"; snapshot: GenerativeRequestSnapshot; error: string; retryable: boolean };

@@ -42,9 +42,15 @@ export async function decodeImage(file: File): Promise<ImageVersion> {
 }
 
 /** Downloads the accepted browser version directly without replaying edits or changing dimensions. */
-export function exportVersion(version: ImageVersion): void {
+export function exportVersion(version: ImageVersion, mediaType: "image/png" | "image/jpeg" = version.mediaType): void {
+  const canvas = document.createElement("canvas");
+  canvas.width = version.width;
+  canvas.height = version.height;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Canvas rendering is not available in this browser.");
+  context.putImageData(new ImageData(new Uint8ClampedArray(version.pixels), version.width, version.height), 0, 0);
   const link = document.createElement("a");
-  link.href = version.dataUrl;
-  link.download = `local-edit-${version.width}x${version.height}.${version.mediaType === "image/jpeg" ? "jpg" : "png"}`;
+  link.href = canvas.toDataURL(mediaType, 0.92);
+  link.download = `local-edit-${version.width}x${version.height}.${mediaType === "image/jpeg" ? "jpg" : "png"}`;
   link.click();
 }

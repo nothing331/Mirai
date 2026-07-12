@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("upload, select, and recolor an image", async ({ page }) => {
+  const projectName = `Playwright project ${Date.now()}`;
   await page.goto("/");
   await page.getByTestId("file-input").evaluate(async (input: HTMLInputElement) => {
     const canvas = document.createElement("canvas");
@@ -22,21 +23,25 @@ test("upload, select, and recolor an image", async ({ page }) => {
   if (!bounds) throw new Error("Editor canvas has no visible bounds.");
   const initialX = Number(await canvas.getAttribute("data-viewport-x"));
   const initialY = Number(await canvas.getAttribute("data-viewport-y"));
-  await page.mouse.move(bounds.x + initialX + 3, bounds.y + initialY + 3);
+  await page.getByRole("radio", { name: "Brush" }).click();
+  await page.mouse.move(bounds.x + initialX + 10, bounds.y + initialY + 10);
   await page.mouse.down();
-  await page.mouse.move(bounds.x + initialX + 17, bounds.y + initialY + 3, { steps: 4 });
-  await page.mouse.move(bounds.x + initialX + 17, bounds.y + initialY + 17, { steps: 4 });
-  await page.mouse.move(bounds.x + initialX + 3, bounds.y + initialY + 17, { steps: 4 });
   await page.mouse.up();
   await page.getByTestId("apply-edit").click();
   await expect(page.getByTestId("preview-comparison")).toBeVisible();
   await expect(page.getByText("0 accepted edits", { exact: true })).toBeVisible();
   await page.getByTestId("accept-preview").click();
   await expect(page.getByText("1 accepted edit", { exact: true })).toBeVisible();
+  await page.getByTestId("undo").click();
+  await expect(page.getByTestId("redo")).toBeEnabled();
+  await page.getByTestId("redo").click();
+  await page.getByLabel("Project name").fill(projectName);
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByLabel("Open saved project").locator("option", { hasText: projectName })).toHaveCount(1);
   await page.getByLabel("Recolor").fill("#22cc66");
   await page.getByTestId("apply-edit").click();
-  await page.getByTestId("accept-preview").click();
-  await expect(page.getByText("2 accepted edits", { exact: true })).toBeVisible();
+  await expect(page.getByText("Draw a closed selection before previewing the edit.").first()).toBeVisible();
+  await expect(page.getByText("1 accepted edit", { exact: true })).toBeVisible();
 
   const scaleBefore = await canvas.getAttribute("data-viewport-scale");
   await canvas.hover({ position: { x: bounds.width / 2, y: bounds.height / 2 } });
@@ -44,9 +49,11 @@ test("upload, select, and recolor an image", async ({ page }) => {
   await expect(canvas).not.toHaveAttribute("data-viewport-scale", scaleBefore!);
   await page.getByRole("radio", { name: "Pan" }).click();
   const viewportBefore = await canvas.getAttribute("data-viewport-x");
-  await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+  const panBounds = await canvas.boundingBox();
+  if (!panBounds) throw new Error("Editor canvas has no visible bounds.");
+  await page.mouse.move(panBounds.x + panBounds.width / 2, panBounds.y + panBounds.height / 2);
   await page.mouse.down();
-  await page.mouse.move(bounds.x + bounds.width / 2 + 60, bounds.y + bounds.height / 2 + 30, { steps: 5 });
+  await page.mouse.move(panBounds.x + panBounds.width / 2 + 60, panBounds.y + panBounds.height / 2 + 30, { steps: 5 });
   await page.mouse.up();
   await expect(canvas).not.toHaveAttribute("data-viewport-x", viewportBefore!);
 
@@ -62,4 +69,68 @@ test("upload, select, and recolor an image", async ({ page }) => {
   const png = Buffer.concat(chunks);
   expect(png.readUInt32BE(16)).toBe(20);
   expect(png.readUInt32BE(20)).toBe(20);
+
+  await page.reload();
+  await page.getByLabel("Open saved project").selectOption({ label: projectName });
+  await expect(page.getByText("1 accepted edit", { exact: true })).toBeVisible();
+  await expect(page.getByText(/20.+20px/)).toBeVisible();
+});
+
+test("fake provider supports generative success, retry, and failure states", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("file-input").evaluate(async (input: HTMLInputElement) => {
+    const source = document.createElement("canvas");
+    source.width = 20;
+    source.height = 20;
+    const context = source.getContext("2d")!;
+    context.fillStyle = "#2878b8";
+    context.fillRect(0, 0, 20, 20);
+    const blob = await new Promise<Blob>((resolve) => source.toBlob((value) => resolve(value!), "image/png"));
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([blob], "sample.png", { type: "image/png" }));
+    input.files = transfer.files;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  const canvas = page.getByTestId("editor-canvas");
+  await expect(canvas).toBeVisible();
+  const bounds = await canvas.boundingBox();
+  if (!bounds) throw new Error("Editor canvas has no visible bounds.");
+  const imageX = Number(await canvas.getAttribute("data-viewport-x"));
+  const imageY = Number(await canvas.getAttribute("data-viewport-y"));
+  await page.getByRole("radio", { name: "Brush" }).click();
+  await page.mouse.move(bounds.x + imageX + 10, bounds.y + imageY + 10);
+  await page.mouse.down();
+  await page.mouse.up();
+
+  await page.getByRole("radio", { name: "Remove" }).click();
+  await expect(page.getByText("Fake provider scenario")).toBeVisible();
+  const scenario = page.getByLabel("Fake provider scenario");
+  await scenario.selectOption("success");
+  await page.getByTestId("generate-edit").click();
+  await expect(page.getByTestId("preview-comparison")).toBeVisible();
+  await expect(page.getByText("0 accepted edits", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Discard" }).click();
+  await expect(page.getByText("0 accepted edits", { exact: true })).toBeVisible();
+
+  await page.getByRole("radio", { name: "Restyle" }).click();
+  await page.getByLabel("Edit instruction").fill("brushed copper");
+  await scenario.selectOption("slow");
+  await page.getByTestId("generate-edit").click();
+  await expect(page.getByText("Processing…")).toBeVisible();
+  await expect(page.getByTestId("preview-comparison")).toBeVisible();
+  await page.getByRole("button", { name: "Discard" }).click();
+  await expect(page.getByText("0 accepted edits", { exact: true })).toBeVisible();
+
+  await page.getByRole("radio", { name: "Remove" }).click();
+  await scenario.selectOption("retryable-error");
+  await page.getByTestId("generate-edit").click();
+  await expect(page.getByText("The fake provider is temporarily unavailable.").first()).toBeVisible();
+  await page.getByRole("button", { name: "Retry same request" }).click();
+  await expect(page.getByRole("button", { name: "Retry same request" })).toBeVisible();
+  await expect(page.getByText("0 accepted edits", { exact: true })).toBeVisible();
+
+  await scenario.selectOption("fatal-error");
+  await page.getByTestId("generate-edit").click();
+  await expect(page.getByText("The fake provider rejected this edit.").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retry same request" })).toHaveCount(0);
 });

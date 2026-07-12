@@ -30,12 +30,12 @@ The plan assumes approximately 1–2 hours per day. Complete and verify one mile
 | 0. Documentation and scope | Complete | Agent rules, architecture reference, and development plan |
 | 1. Application shell | Complete | Local app with image upload and editor layout |
 | 2. Canvas foundation | Complete | Rendering, stable pan/zoom, reset view, coordinate conversion, and dimension-preserving browser export |
-| 3. Manual masking | Complete | Brush and eraser with source-space mask behavior |
+| 3. Manual masking | Complete | Closed-contour filling with source-space brush and eraser refinement |
 | 4. Deterministic editing | Complete | Luminance-preserving recolor, controlled feathering, exact preservation, and preview comparison |
-| 5. Generative editing | Not started | Localized model edit with preview and preservation |
-| 6. Version history | Not started | Accept, discard, undo, redo, and compare |
-| 7. Persistence and export | Not started | Reopen projects and export accepted versions |
-| 8. v0.1 validation | Not started | Tests, usability fixes, and release checklist |
+| 5. Generative editing | Complete | Fake and optional OpenAI Remove/Restyle editing with retry, preview, and exact preservation |
+| 6. Version history | Complete | Accept, discard, linear undo/redo, branch truncation, and comparison |
+| 7. Persistence and export | Complete | SQLite project metadata, immutable local assets, reopening, and PNG/JPEG export |
+| 8. v0.1 validation | Complete | Invariant, provider, history, persistence, export, and browser workflow verification |
 
 Update this table whenever a milestone begins or completes.
 
@@ -222,25 +222,7 @@ A user can close the application, reopen a project, continue editing, and export
 
 ## Next development sessions
 
-### Session 1
-
-- define the application-owned image-provider interface
-- implement a fake provider
-- build processing, preview, accept, discard, failure, and retry states without a paid API
-
-### Session 2
-
-- add linear undo and redo over accepted immutable versions
-- add previous-versus-current comparison
-- define behavior when a new edit is accepted after undo
-
-### Session 3
-
-- add SQLite metadata and local filesystem asset storage
-- save and reopen one local project
-- move browser-only export onto accepted persisted assets
-
-Connect a real generative provider only after the fake-provider pipeline and preservation tests pass.
+The v0.1 engineering milestones are complete. Future work should begin from user feedback and the deferred scope in `PROJECT.md`, without weakening the accepted-version and exact-preservation invariants.
 
 ## Plan maintenance
 
