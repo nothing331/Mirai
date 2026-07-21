@@ -1,9 +1,11 @@
 import { create } from "zustand";
 import { GenerativeRequestError, requestGenerativeCandidate } from "./generative-client";
 import { pixelsToDataUrl } from "./image-data";
-import { createMask, fillPolygonMask, maskHasSelection, paintMask } from "./mask";
+import { cleanRasterMask, unionMasks } from "./mask-cleanup";
+import { createGenerativeEffectiveMask, createMask, fillPolygonMask, maskHasSelection, paintMask } from "./mask";
 import { recolorPixels } from "./recolor";
-import type { EditOperation, EditPreview, EditType, FakeScenario, GenerativePreviewState, GenerativeRequestSnapshot, ImageVersion, MaskAsset, ProcessingMask, SourcePoint, Tool, Viewport } from "./types";
+import { cleanLassoContour } from "./selection-geometry";
+import type { EditOperation, EditPreview, EditType, FakeScenario, GenerativePreviewState, GenerativeRequestSnapshot, ImageVersion, LassoVisualization, MaskAsset, ProcessingMask, SelectionDiagnostics, SourcePoint, Tool, Viewport } from "./types";
 
 interface EditorState {
   originalVersionId: string | null;
@@ -20,6 +22,8 @@ interface EditorState {
   generativeState: GenerativePreviewState;
   selectionMask: ProcessingMask | null;
   selectionId: string | null;
+  selectionDiagnostics: SelectionDiagnostics | null;
+  lassoVisualization: LassoVisualization | null;
   viewport: Viewport;
   viewResetKey: number;
   tool: Tool;
@@ -40,7 +44,7 @@ interface EditorState {
   setEditType: (editType: EditType) => void;
   setPrompt: (prompt: string) => void;
   setFakeScenario: (scenario: FakeScenario) => void;
-  fillSelection: (points: SourcePoint[]) => void;
+  fillSelection: (points: SourcePoint[], viewportScale?: number) => void;
   paintSelection: (from: SourcePoint, to: SourcePoint) => void;
   clearSelection: () => void;
   createPreview: () => boolean;
@@ -83,6 +87,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   generativeState: idleGenerativeState,
   selectionMask: null,
   selectionId: null,
+  selectionDiagnostics: null,
+  lassoVisualization: null,
   ...initialControls,
   loadImage: (version) => set((state) => ({
     projectId: crypto.randomUUID(),
@@ -96,13 +102,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     generativeState: idleGenerativeState,
     selectionMask: createMask(version.width, version.height),
     selectionId: crypto.randomUUID(),
+    selectionDiagnostics: null,
+    lassoVisualization: null,
     viewResetKey: state.viewResetKey + 1,
     error: null,
   })),
   restoreProject: (project) => {
     const current = project.versions.find((version) => version.id === project.currentVersionId);
     if (!current) return;
-    set((state) => ({ ...project, preview: null, generativeState: idleGenerativeState, selectionMask: createMask(current.width, current.height), selectionId: crypto.randomUUID(), viewResetKey: state.viewResetKey + 1, error: null }));
+    set((state) => ({ ...project, preview: null, generativeState: idleGenerativeState, selectionMask: createMask(current.width, current.height), selectionId: crypto.randomUUID(), selectionDiagnostics: null, lassoVisualization: null, viewResetKey: state.viewResetKey + 1, error: null }));
   },
   setProjectName: (projectName) => set({ projectName }),
   setViewport: (viewport) => set({ viewport }),
@@ -115,11 +123,41 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setEditType: (editType) => set({ editType, preview: null, generativeState: idleGenerativeState, error: null }),
   setPrompt: (prompt) => set({ prompt, preview: null, generativeState: idleGenerativeState }),
   setFakeScenario: (fakeScenario) => set({ fakeScenario }),
-  fillSelection: (points) => set((state) => {
+  fillSelection: (points, viewportScale = 1) => set((state) => {
     if (!state.selectionMask) return {};
     try {
+      const contour = cleanLassoContour(points, viewportScale);
       const softnessPixels = state.brushSize * state.maskSoftness;
-      return { selectionMask: fillPolygonMask(state.selectionMask, points, softnessPixels), preview: null, generativeState: idleGenerativeState, error: null };
+      const empty = createMask(state.selectionMask.width, state.selectionMask.height);
+      const featheredMask = fillPolygonMask(empty, contour.points, softnessPixels);
+      const binaryMask = fillPolygonMask(empty, contour.points, 0);
+      const radius = Math.min(4, Math.max(1, Math.round(Math.min(empty.width, empty.height) * 0.002)));
+      const minimumIslandArea = Math.max(1, Math.round(empty.width * empty.height * 0.00001));
+      const cleanedBinaryMask = cleanRasterMask(binaryMask, radius, minimumIslandArea);
+      const cleanedMask = createMask(empty.width, empty.height);
+      for (let index = 0; index < cleanedMask.data.length; index += 1) {
+        if (cleanedBinaryMask.data[index] === 0) continue;
+        cleanedMask.data[index] = binaryMask.data[index] === 0 ? 255 : featheredMask.data[index];
+      }
+      const warnings: SelectionDiagnostics["warnings"] = [];
+      if (contour.selfIntersectionCount > 0) warnings.push("self-intersection");
+      if (contour.areaChangeRatio > 0.06) warnings.push("large-auto-correction");
+      if (contour.usedRawContour) warnings.push("raw-contour-preserved");
+      return {
+        selectionMask: unionMasks(state.selectionMask, cleanedMask),
+        selectionDiagnostics: {
+          rawPointCount: contour.rawPoints.length,
+          cleanedPointCount: contour.points.length,
+          removedSpikeCount: contour.removedSpikeCount,
+          selfIntersectionCount: contour.selfIntersectionCount,
+          areaChangeRatio: contour.areaChangeRatio,
+          warnings,
+        },
+        lassoVisualization: { rawPoints: contour.rawPoints, cleanedPoints: contour.points, showRawContour: warnings.length > 0 },
+        preview: null,
+        generativeState: idleGenerativeState,
+        error: contour.usedRawContour && contour.selfIntersectionCount > 0 ? "The lasso crossed over itself, so the original contour was preserved. Refine it with Brush or Eraser." : null,
+      };
     } catch (error) {
       return { error: error instanceof Error ? error.message : "The closed selection could not be filled." };
     }
@@ -128,6 +166,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     selectionMask: paintMask(state.selectionMask, from, to, state.brushSize / 2, state.tool === "eraser" ? 0 : 255, state.maskSoftness),
     preview: null,
     generativeState: idleGenerativeState,
+    lassoVisualization: null,
     error: null,
   } : {}),
   clearSelection: () => set((state) => state.selectionMask ? {
@@ -135,6 +174,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     selectionId: crypto.randomUUID(),
     preview: null,
     generativeState: idleGenerativeState,
+    selectionDiagnostics: null,
+    lassoVisualization: null,
     error: null,
   } : {}),
   createPreview: () => {
@@ -166,19 +207,19 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   requestGenerativePreview: async () => {
     const state = get();
     const input = state.versions.find((version) => version.id === state.currentVersionId);
-    if ((state.editType !== "remove" && state.editType !== "restyle") || !input || !state.selectionMask || !state.selectionId || !maskHasSelection(state.selectionMask)) {
-      set({ error: "Draw a closed selection and choose Remove or Restyle." });
+    if ((state.editType !== "remove" && state.editType !== "replace" && state.editType !== "restyle") || !input || !state.selectionMask || !state.selectionId || !maskHasSelection(state.selectionMask)) {
+      set({ error: "Draw a closed selection and choose a generative operation." });
       return false;
     }
-    if (state.editType === "restyle" && state.prompt.trim().length === 0) {
-      set({ error: "Describe how the selected area should be restyled." });
+    if (state.editType !== "remove" && state.prompt.trim().length === 0) {
+      set({ error: "Describe the requested change." });
       return false;
     }
     const snapshot: GenerativeRequestSnapshot = {
       requestId: crypto.randomUUID(),
       inputVersion: { ...input, pixels: new Uint8ClampedArray(input.pixels) },
       selectionId: state.selectionId,
-      mask: { ...state.selectionMask, data: new Uint8ClampedArray(state.selectionMask.data) },
+      mask: createGenerativeEffectiveMask(state.selectionMask, state.editType),
       operation: state.editType,
       prompt: state.prompt.trim(),
       scenario: state.fakeScenario,
@@ -215,6 +256,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       versions: [...retainedVersions, output], operations: [...retainedOperations, operation],
       maskAssets: [...state.maskAssets.filter((mask) => retainedMaskIds.has(mask.id)), preview.mask], currentVersionId: outputId, preview: null,
       selectionMask: createMask(input.width, input.height), selectionId: crypto.randomUUID(),
+      selectionDiagnostics: null, lassoVisualization: null,
       generativeState: idleGenerativeState, error: null,
     });
     return true;
@@ -234,7 +276,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const currentIndex = state.versions.findIndex((version) => version.id === state.currentVersionId);
     if (currentIndex <= 0) return false;
     const target = state.versions[currentIndex - 1];
-    set({ currentVersionId: target.id, preview: null, generativeState: idleGenerativeState, selectionMask: createMask(target.width, target.height), selectionId: crypto.randomUUID(), error: null });
+    set({ currentVersionId: target.id, preview: null, generativeState: idleGenerativeState, selectionMask: createMask(target.width, target.height), selectionId: crypto.randomUUID(), selectionDiagnostics: null, lassoVisualization: null, error: null });
     return true;
   },
   redo: () => {
@@ -242,7 +284,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const currentIndex = state.versions.findIndex((version) => version.id === state.currentVersionId);
     if (currentIndex < 0 || currentIndex >= state.versions.length - 1) return false;
     const target = state.versions[currentIndex + 1];
-    set({ currentVersionId: target.id, preview: null, generativeState: idleGenerativeState, selectionMask: createMask(target.width, target.height), selectionId: crypto.randomUUID(), error: null });
+    set({ currentVersionId: target.id, preview: null, generativeState: idleGenerativeState, selectionMask: createMask(target.width, target.height), selectionId: crypto.randomUUID(), selectionDiagnostics: null, lassoVisualization: null, error: null });
     return true;
   },
   reset: () => set((state) => {
@@ -250,6 +292,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     return original ? {
       currentVersionId: original.id, versions: [original], operations: [], maskAssets: [], preview: null, generativeState: idleGenerativeState,
       selectionMask: createMask(original.width, original.height), selectionId: crypto.randomUUID(),
+      selectionDiagnostics: null, lassoVisualization: null,
       viewResetKey: state.viewResetKey + 1, error: null,
     } : {};
   }),

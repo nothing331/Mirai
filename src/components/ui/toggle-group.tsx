@@ -13,7 +13,7 @@ export function ToggleGroup({ className, ...props }: React.ComponentProps<typeof
 export function ToggleGroupItem({ className, ...props }: React.ComponentProps<typeof ToggleGroupPrimitive.Item>) {
   return (
     <ToggleGroupPrimitive.Item
-      className={cn("flex min-h-10 items-center justify-center gap-1.5 border-r border-ink px-1 font-mono text-[10px] uppercase last:border-r-0 data-[state=on]:bg-ink data-[state=on]:text-white focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-accent", className)}
+      className={cn("flex min-h-9 items-center justify-center gap-1.5 border-r border-ink px-1 font-mono text-[9px] uppercase transition-colors last:border-r-0 hover:bg-white/60 data-[state=on]:bg-ink data-[state=on]:text-white focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-accent", className)}
       {...props}
     />
   );

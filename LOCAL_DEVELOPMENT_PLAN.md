@@ -36,6 +36,7 @@ The plan assumes approximately 1–2 hours per day. Complete and verify one mile
 | 6. Version history | Complete | Accept, discard, linear undo/redo, branch truncation, and comparison |
 | 7. Persistence and export | Complete | SQLite project metadata, immutable local assets, reopening, and PNG/JPEG export |
 | 8. v0.1 validation | Complete | Invariant, provider, history, persistence, export, and browser workflow verification |
+| 9. Selection feedback improvements | Complete | Conservative lasso cleanup, mask diagnostics, and selection-anchored edit instructions |
 
 Update this table whenever a milestone begins or completes.
 

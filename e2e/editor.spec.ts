@@ -3,6 +3,13 @@ import { expect, test } from "@playwright/test";
 test("upload, select, and recolor an image", async ({ page }) => {
   const projectName = `Playwright project ${Date.now()}`;
   await page.goto("/");
+  const canvasRegion = page.getByRole("region", { name: "Image canvas" });
+  const inspector = page.getByRole("complementary", { name: "Editor tools" });
+  const canvasTop = (await canvasRegion.boundingBox())?.y;
+  await inspector.evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
+  expect((await canvasRegion.boundingBox())?.y).toBe(canvasTop);
+  expect(await page.evaluate(() => ({ pageY: window.scrollY, viewportLocked: document.documentElement.scrollHeight === document.documentElement.clientHeight }))).toEqual({ pageY: 0, viewportLocked: true });
+  await inspector.evaluate((element) => element.scrollTo({ top: 0 }));
   await page.getByTestId("file-input").evaluate(async (input: HTMLInputElement) => {
     const canvas = document.createElement("canvas");
     canvas.width = 20;

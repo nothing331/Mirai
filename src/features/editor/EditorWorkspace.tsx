@@ -30,6 +30,7 @@ const tools: Array<{ value: Tool; label: string; icon: typeof Brush }> = [
 const editTypes: Array<{ value: EditType; label: string }> = [
   { value: "recolor", label: "Recolor" },
   { value: "remove", label: "Remove" },
+  { value: "replace", label: "Add / replace" },
   { value: "restyle", label: "Restyle" },
 ];
 
@@ -81,8 +82,13 @@ export function EditorWorkspace() {
 
   /** Validates free client-side requirements before showing a paid-call confirmation. */
   async function handleGeneratePreview() {
-    const ready = state.selectionMask && maskHasSelection(state.selectionMask) && (state.editType === "remove" || (state.editType === "restyle" && state.prompt.trim().length > 0));
+    const ready = state.selectionMask && maskHasSelection(state.selectionMask) && (state.editType === "remove" || ((state.editType === "replace" || state.editType === "restyle") && state.prompt.trim().length > 0));
     if (!ready || authorizeProviderRequest("Generate preview")) await state.requestGenerativePreview();
+  }
+
+  function handleSelectionPreview() {
+    if (state.editType === "recolor") state.createPreview();
+    else void handleGeneratePreview();
   }
 
   /** Keeps retries manual and applies the same confirmation and session budget. */
@@ -127,17 +133,24 @@ export function EditorWorkspace() {
   const comparisonVersion = compareWith === "previous" && currentIndex > 0 ? state.versions[currentIndex - 1] : originalVersion;
 
   return (
-    <main className="min-h-screen bg-paper bg-[linear-gradient(rgba(23,23,20,.035)_1px,transparent_1px),linear-gradient(90deg,rgba(23,23,20,.035)_1px,transparent_1px)] bg-[size:24px_24px] p-3 text-ink sm:p-5">
-      <header className="flex min-h-24 items-end justify-between border-y border-t-[6px] border-ink py-4">
-        <div>
-          <p className="mb-3 font-mono text-[11px] uppercase tracking-wider">Browser image lab / v0.1</p>
-          <h1 className="text-5xl font-bold leading-[.8] tracking-[-.065em] sm:text-7xl lg:text-[5.25rem]">Local Edit</h1>
+    <main className="h-dvh overflow-hidden bg-[#cfcdc5] text-ink">
+      <header className="flex h-14 items-center justify-between border-b border-ink bg-paper px-3 sm:px-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="grid size-7 shrink-0 place-items-center bg-ink font-mono text-[10px] font-medium text-acid" aria-hidden="true">LE</span>
+          <div className="min-w-0">
+            <h1 className="truncate text-base font-bold leading-none tracking-[-.025em]">Local Edit</h1>
+            <p className="mt-1 hidden font-mono text-[9px] uppercase tracking-[.14em] text-muted sm:block">Non-destructive image workspace</p>
+          </div>
         </div>
-        <p className="hidden max-w-md text-right font-mono text-[11px] uppercase leading-relaxed tracking-wide sm:block">Paint a region. Change its color. Keep every other pixel intact.</p>
+        <div className="flex items-center gap-3 font-mono text-[9px] uppercase tracking-[.12em] text-muted">
+          <span className="hidden sm:inline">{currentVersion ? state.projectName : "No project open"}</span>
+          <span className={cn("size-2 rounded-full", currentVersion ? "bg-acid ring-1 ring-ink" : "bg-line")} aria-hidden="true" />
+          <span>{currentVersion ? "Ready" : "Empty"}</span>
+        </div>
       </header>
 
-      <section className="grid min-h-[calc(100vh-145px)] grid-cols-1 md:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="pt-5 md:border-r md:border-ink md:pr-5" aria-label="Editor tools">
+      <section className="grid h-[calc(100dvh-3.5rem)] min-h-0 grid-rows-[minmax(300px,1.15fr)_minmax(0,.85fr)] md:grid-cols-[272px_minmax(0,1fr)] md:grid-rows-1">
+        <aside className="order-2 min-h-0 overflow-y-auto overscroll-contain border-t border-ink bg-paper px-4 md:order-1 md:border-r md:border-t-0" aria-label="Editor tools">
           <ControlSection number="01" title="Open" subtitle="PNG or JPEG" className="pt-0">
             <label className={cn(buttonVariants(), "relative w-full cursor-pointer")}>
               <ImagePlus className="size-4" />
@@ -160,7 +173,15 @@ export function EditorWorkspace() {
               </ToggleGroup>
 
               {state.tool === "lasso" && (
-                <p className="border-l-2 border-accent pl-2 text-xs leading-relaxed text-muted">Draw around an object or area. Releasing the pointer automatically closes the contour and fills everything inside it.</p>
+                <p className="border-l-2 border-accent pl-2 text-xs leading-relaxed text-muted">Draw loosely around an object or area. The contour is cleaned conservatively when you release the pointer.</p>
+              )}
+
+              {state.selectionDiagnostics && (
+                <div className="grid gap-1 border border-line bg-[#e8e5dc] p-2.5 font-mono text-[9px] uppercase tracking-[.08em] text-muted" data-testid="selection-diagnostics">
+                  <div className="flex items-center justify-between"><span>Selection cleanup</span><strong className="text-ink">{state.selectionDiagnostics.rawPointCount} → {state.selectionDiagnostics.cleanedPointCount} points</strong></div>
+                  <div className="flex items-center justify-between"><span>Spikes removed</span><strong className="text-ink">{state.selectionDiagnostics.removedSpikeCount}</strong></div>
+                  {state.selectionDiagnostics.warnings.length > 0 && <span className="mt-1 border-l-2 border-[#d98b00] pl-2 normal-case tracking-normal text-[#795000]">Original contour preserved where automatic cleanup was uncertain.</span>}
+                </div>
               )}
 
               {(state.tool === "brush" || state.tool === "eraser") && (
@@ -197,12 +218,12 @@ export function EditorWorkspace() {
                 </label>
               ) : (
                 <label className="grid gap-1.5 text-xs">
-                  <span>{state.editType === "restyle" ? "Restyle instruction" : "Optional removal context"}</span>
+                  <span>{state.editType === "replace" ? "What should be added or replaced?" : state.editType === "restyle" ? "Restyle instruction" : "Optional removal context"}</span>
                   <textarea
                     aria-label="Edit instruction"
                     className="min-h-20 resize-y border border-ink bg-transparent p-2 text-xs outline-none focus:ring-2 focus:ring-accent"
                     value={state.prompt}
-                    placeholder={state.editType === "restyle" ? "Example: turn this into brushed copper" : "Example: reconstruct the brick wall behind it"}
+                    placeholder={state.editType === "replace" ? "Example: add a complete swimming pool contained inside this area" : state.editType === "restyle" ? "Example: turn this into brushed copper" : "Example: reconstruct the brick wall behind it"}
                     onChange={(event) => state.setPrompt(event.target.value)}
                   />
                 </label>
@@ -243,7 +264,7 @@ export function EditorWorkspace() {
                 </div>
               )}
 
-              <p className="text-[11px] leading-relaxed text-muted">Every candidate is clipped through the filled selection before preview. Unselected input pixels remain exact.</p>
+              <p className="text-[11px] leading-relaxed text-muted">Add / replace treats the selection as a placement envelope and keeps the full subject inside it. Remove expands the effective boundary slightly for a natural reconstruction blend. Pixels outside that controlled boundary remain exact.</p>
               <Button variant="quiet" onClick={state.reset}><RotateCcw className="size-3.5" />Reset to original</Button>
               <div className="grid grid-cols-2 gap-2">
                 <Button data-testid="undo" variant="quiet" disabled={!state.canUndo()} onClick={state.undo}><Undo2 className="size-3.5" />Undo</Button>
@@ -257,24 +278,24 @@ export function EditorWorkspace() {
           {state.error && <p className="border-l-4 border-accent bg-[#ffd5cc] p-3 text-xs leading-relaxed text-[#8f1d10]" role="alert">{state.error}</p>}
         </aside>
 
-        <section className="grid h-[calc(100vh-145px)] min-h-[620px] min-w-0 self-start grid-rows-[auto_minmax(460px,1fr)_auto] pt-5 md:pl-5" aria-label="Image canvas">
-          <div className="flex justify-between pb-2.5 font-mono text-[10px] uppercase tracking-wider">
-            <span>{currentVersion ? `${currentVersion.width} × ${currentVersion.height}px` : "No image loaded"}</span>
+        <section className="order-1 grid min-h-0 min-w-0 grid-rows-[36px_minmax(0,1fr)_26px] bg-[#cfcdc5] p-2 pb-0 md:order-2 md:p-3 md:pb-0" aria-label="Image canvas">
+          <div className="flex items-center justify-between px-1 font-mono text-[9px] uppercase tracking-[.12em] text-[#4f4d47]">
+            <span>{currentVersion ? `${currentVersion.width} × ${currentVersion.height}px` : "Canvas"}</span>
             <span>{state.operations.length} accepted edit{state.operations.length === 1 ? "" : "s"}</span>
           </div>
-          <div className="relative min-h-[460px] overflow-hidden border border-ink bg-[#151513] shadow-[6px_6px_0_rgba(23,23,20,.15)]">
+          <div className="relative min-h-0 overflow-hidden border border-[#343430] bg-[#151513] shadow-[0_1px_0_rgba(255,255,255,.35)]">
             {state.preview && comparisonVersion && currentVersion ? (
               <PreviewComparison baseLabel={compareWith === "previous" ? "Previous" : "Original"} originalUrl={comparisonVersion.dataUrl} previewUrl={state.preview.dataUrl} onAccept={state.acceptPreview} onDiscard={state.discardPreview} />
-            ) : currentVersion && state.selectionMask ? <EditorCanvas version={currentVersion} mask={state.selectionMask} color={state.color} viewResetKey={state.viewResetKey} /> : (
+            ) : currentVersion && state.selectionMask ? <EditorCanvas version={currentVersion} mask={state.selectionMask} color={state.color} viewResetKey={state.viewResetKey} onPreview={handleSelectionPreview} /> : (
               <label className="group absolute inset-0 flex cursor-pointer flex-col items-center justify-center gap-2 text-[#d4d1c8]">
                 <span className="mb-2 grid size-14 place-items-center rounded-full border border-[#77746c] text-3xl transition group-hover:rotate-90 group-hover:bg-acid group-hover:text-ink">+</span>
-                <strong className="text-base">Drop into the process</strong>
-                <span className="text-xs text-[#8e8b82]">Choose a PNG or JPEG to begin.</span>
+                <strong className="text-sm">Open an image</strong>
+                <span className="text-xs text-[#8e8b82]">PNG or JPEG</span>
                 <input className="sr-only" type="file" accept="image/png,image/jpeg" onChange={handleUpload} />
               </label>
             )}
           </div>
-          <p className="mt-3 font-mono text-[9px] uppercase leading-relaxed tracking-wide text-muted">Draw a closed lasso to fill · Brush or erase to refine · Scroll to zoom · Pan to move</p>
+          <p className="flex items-center px-1 font-mono text-[8px] uppercase tracking-[.1em] text-[#5f5d56]">Lasso to select · Brush to refine · Scroll to zoom · Pan to move</p>
         </section>
       </section>
     </main>
@@ -306,9 +327,9 @@ function PreviewComparison({ baseLabel, originalUrl, previewUrl, onAccept, onDis
 /** Keeps each numbered editor step visually and semantically consistent. */
 function ControlSection({ number, title, subtitle, className, children }: { number: string; title: string; subtitle: string; className?: string; children: React.ReactNode }) {
   return (
-    <section className={cn("grid grid-cols-[28px_1fr] gap-x-2.5 gap-y-4 border-b border-line py-5", className)}>
-      <span className="pt-1 font-mono text-[10px] uppercase tracking-wider">{number}</span>
-      <div><h2 className="text-xl font-bold tracking-tight">{title}</h2><p className="mt-0.5 text-xs text-muted">{subtitle}</p></div>
+    <section className={cn("grid grid-cols-[24px_1fr] gap-x-2 gap-y-3 border-b border-line py-4", className)}>
+      <span className="pt-0.5 font-mono text-[9px] uppercase tracking-wider text-muted">{number}</span>
+      <div><h2 className="text-base font-bold tracking-tight">{title}</h2><p className="mt-0.5 text-[11px] leading-snug text-muted">{subtitle}</p></div>
       <div className="col-span-2 grid gap-3">{children}</div>
     </section>
   );

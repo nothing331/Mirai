@@ -12,7 +12,7 @@ vi.mock("openai", () => ({
   toFile: mocks.toFile,
 }));
 
-import { OpenAIImageEditProvider } from "./openai-provider";
+import { buildEditInstruction, OpenAIImageEditProvider, supportsInputFidelity } from "./openai-provider";
 
 describe("OpenAIImageEditProvider", () => {
   beforeEach(() => mocks.edit.mockReset());
@@ -29,5 +29,25 @@ describe("OpenAIImageEditProvider", () => {
     expect(await sharp(providerInput).metadata()).toMatchObject({ width: 1, height: 2 });
     expect(await sharp(result.candidatePng).metadata()).toMatchObject({ width: 2, height: 3 });
     expect(result.providerRequestId).toMatch(/^openai-/);
+  });
+
+  it("sends input fidelity only to model families that support it", async () => {
+    const input = await sharp({ create: { width: 2, height: 2, channels: 4, background: "blue" } }).png().toBuffer();
+    const mask = await sharp({ create: { width: 2, height: 2, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 1 } } }).png().toBuffer();
+    mocks.edit.mockResolvedValue({ data: [{ b64_json: input.toString("base64") }] });
+    await new OpenAIImageEditProvider("test-key", "gpt-image-1").edit({ imagePng: input, maskPng: mask, width: 2, height: 2, operation: "remove", prompt: "" });
+    expect(mocks.edit.mock.calls[0][0]).toHaveProperty("input_fidelity", "high");
+    expect(supportsInputFidelity("gpt-image-1-mini")).toBe(false);
+    expect(supportsInputFidelity("gpt-image-2-2026-04-21")).toBe(false);
+  });
+
+  it("treats replacements as placement envelopes and removals as reconstruction", () => {
+    const selection = { leftPercent: 10, topPercent: 50, widthPercent: 35, heightPercent: 30, touchesImageEdge: true };
+    const replacement = buildEditInstruction("replace", "add a car", selection);
+    expect(replacement).toContain("placement envelope, not as a crop");
+    expect(replacement).toContain("entire requested subject must be visible");
+    expect(replacement).toContain("scale and position the requested subject away from that edge");
+    const removal = buildEditInstruction("remove", "", selection);
+    expect(removal).toContain("Do not leave a blur, smudge, repeated texture, halo, outline, patch, or ghost");
   });
 });

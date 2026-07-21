@@ -1,11 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { createMask, deserializeMask, fillPolygonMask, paintMask, serializeMask } from "./mask";
+import { createGenerativeEffectiveMask, createMask, deserializeMask, fillPolygonMask, getMaskBounds, paintMask, serializeMask } from "./mask";
 
 describe("processing masks", () => {
   it("always uses source dimensions", () => {
     const mask = createMask(12, 7);
     expect(mask.data).toHaveLength(84);
     expect([mask.width, mask.height]).toEqual([12, 7]);
+  });
+
+  it("expands and feathers removal masks while leaving replacement masks unchanged", () => {
+    const mask = createMask(21, 21);
+    mask.data[10 * 21 + 10] = 255;
+    const removal = createGenerativeEffectiveMask(mask, "remove");
+    const replacement = createGenerativeEffectiveMask(mask, "replace");
+    expect(removal.width).toBe(mask.width);
+    expect(removal.data[10 * 21 + 12]).toBe(255);
+    expect(removal.data.some((alpha) => alpha > 0 && alpha < 255)).toBe(true);
+    expect(replacement.data).toEqual(mask.data);
+    expect(removal.data).not.toBe(mask.data);
   });
 
   it("paints, erases, and clips strokes at image boundaries", () => {
@@ -47,5 +59,13 @@ describe("processing masks", () => {
     expect(mask.data[1 * 12 + 5]).toBeGreaterThan(0);
     expect(mask.data[1 * 12 + 5]).toBeLessThan(255);
     expect(mask.data[6 * 12 + 6]).toBe(255);
+  });
+
+  it("finds source-space bounds for the active mask", () => {
+    const mask = createMask(6, 5);
+    mask.data[1 * 6 + 2] = 255;
+    mask.data[3 * 6 + 4] = 255;
+    expect(getMaskBounds(mask)).toEqual({ left: 2, top: 1, right: 4, bottom: 3, centerX: 3, centerY: 2 });
+    expect(getMaskBounds(createMask(2, 2))).toBeNull();
   });
 });

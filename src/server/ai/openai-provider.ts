@@ -25,9 +25,8 @@ export class OpenAIImageEditProvider implements ImageEditProvider {
       const providerHeight = Math.max(1, Math.round(request.height * scale));
       const providerImage = await sharp(request.imagePng).resize(providerWidth, providerHeight, { fit: "fill" }).png().toBuffer();
       const providerMask = await makeOpenAITransparencyMask(request.maskPng, providerWidth, providerHeight);
-      const instruction = request.operation === "remove"
-        ? `Remove the selected content completely and naturally reconstruct only the background that should exist behind it. Do not introduce any new object, person, character, text, decoration, or illustration. Match the surrounding lighting, perspective, material, texture, and geometry. Preserve all unselected content. ${request.prompt}`.trim()
-        : `Restyle only the selected area as follows: ${request.prompt}. Preserve lighting, perspective, boundaries, and all unselected content.`;
+      const selection = await describeSelection(request.maskPng, request.width, request.height);
+      const instruction = buildEditInstruction(request.operation, request.prompt, selection);
       const response = await this.client.images.edit({
         model: this.model,
         image: await toFile(providerImage, "image.png", { type: "image/png" }),
@@ -35,6 +34,7 @@ export class OpenAIImageEditProvider implements ImageEditProvider {
         prompt: instruction,
         size: "auto",
         quality: this.quality,
+        ...(supportsInputFidelity(this.model) ? { input_fidelity: "high" as const } : {}),
         output_format: "png",
       });
       const encoded = response.data?.[0]?.b64_json;
@@ -47,6 +47,56 @@ export class OpenAIImageEditProvider implements ImageEditProvider {
       throw new ImageProviderError(error instanceof Error ? error.message : "OpenAI image editing failed.", status === 408 || status === 409 || status === 429 || (status !== undefined && status >= 500));
     }
   }
+}
+
+/** Prevents optional image-edit parameters from being sent to model versions that reject them. */
+export function supportsInputFidelity(model: string): boolean {
+  if (model === "gpt-image-1" || model.startsWith("gpt-image-1-")) return !model.startsWith("gpt-image-1-mini");
+  return model === "gpt-image-1.5" || model.startsWith("gpt-image-1.5-");
+}
+
+interface SelectionDescription {
+  leftPercent: number;
+  topPercent: number;
+  widthPercent: number;
+  heightPercent: number;
+  touchesImageEdge: boolean;
+}
+
+/** Builds operation-specific constraints so a selection is treated as context, placement, or material—not a crop. */
+export function buildEditInstruction(operation: ImageEditRequest["operation"], prompt: string, selection: SelectionDescription): string {
+  const geometry = `The editable region begins at ${selection.leftPercent}% from the left and ${selection.topPercent}% from the top, and spans ${selection.widthPercent}% of the image width by ${selection.heightPercent}% of the image height.`;
+  if (operation === "remove") {
+    return `Remove the selected subject completely. Reconstruct the background continuously across the entire editable region using the surrounding scene as evidence. Continue visible lines, surfaces, shadows, texture, depth, perspective, lighting, and natural irregularities through the removed area. Do not leave a blur, smudge, repeated texture, halo, outline, patch, or ghost of the removed subject. Do not add any new object, person, text, decoration, or focal element. ${geometry} Preserve all content outside the editable region exactly. ${prompt}`.trim();
+  }
+  if (operation === "replace") {
+    const edgeConstraint = selection.touchesImageEdge ? "The editable region touches an image edge, so scale and position the requested subject away from that edge unless the instruction explicitly asks for an intentionally cropped subject." : "Keep clear breathing room between the complete subject and every edge of the editable region.";
+    return `Add or replace content according to this instruction: ${prompt}. Treat the editable region as a placement envelope, not as a crop and not as an area that must be completely filled. The entire requested subject must be visible and recognizable inside the editable region: include all of its major parts, do not cut it off at the mask or image boundary, and scale it down when necessary. ${edgeConstraint} Ground it convincingly in the scene with correct perspective, scale, contact, occlusion, lighting, reflections, and shadows. ${geometry} Preserve all content outside the editable region exactly and introduce no unrelated objects or text.`;
+  }
+  return `Restyle the existing selected content according to this instruction: ${prompt}. Keep the selected subject's identity, silhouette, geometry, scale, and position. Change only the requested appearance or material; do not add a new subject or crop existing parts. Match the scene's lighting and perspective. ${geometry} Preserve all content outside the editable region exactly.`;
+}
+
+async function describeSelection(maskPng: Uint8Array, width: number, height: number): Promise<SelectionDescription> {
+  const pixels = await sharp(maskPng).ensureAlpha().resize(width, height, { fit: "fill" }).raw().toBuffer();
+  let minX = width;
+  let minY = height;
+  let maxX = 0;
+  let maxY = 0;
+  for (let index = 0; index < width * height; index += 1) {
+    if (pixels[index * 4 + 3] <= 16) continue;
+    const x = index % width;
+    const y = Math.floor(index / width);
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+  }
+  const round = (value: number) => Math.round(value * 10) / 10;
+  return {
+    leftPercent: round(minX / width * 100), topPercent: round(minY / height * 100),
+    widthPercent: round((maxX - minX + 1) / width * 100), heightPercent: round((maxY - minY + 1) / height * 100),
+    touchesImageEdge: minX <= 1 || minY <= 1 || maxX >= width - 2 || maxY >= height - 2,
+  };
 }
 
 /** Converts the application's positive-alpha selection into OpenAI's transparent edit area. */

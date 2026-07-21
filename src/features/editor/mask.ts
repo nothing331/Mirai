@@ -1,5 +1,14 @@
 import type { ProcessingMask, SerializedProcessingMask, SourcePoint } from "./types";
 
+export interface MaskBounds {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+  centerX: number;
+  centerY: number;
+}
+
 /** Allocates an empty source-resolution alpha mask. */
 export function createMask(width: number, height: number): ProcessingMask {
   return { width, height, data: new Uint8ClampedArray(width * height) };
@@ -107,4 +116,58 @@ export function deserializeMask(serialized: SerializedProcessingMask): Processin
 /** Reports whether a mask contains at least one affected source pixel. */
 export function maskHasSelection(mask: ProcessingMask): boolean {
   return mask.data.some((alpha) => alpha > 0);
+}
+
+/** Finds the source-space bounds used to anchor controls to the active selection. */
+export function getMaskBounds(mask: ProcessingMask, alphaThreshold = 16): MaskBounds | null {
+  let left = mask.width;
+  let top = mask.height;
+  let right = -1;
+  let bottom = -1;
+  for (let index = 0; index < mask.data.length; index += 1) {
+    if (mask.data[index] <= alphaThreshold) continue;
+    const x = index % mask.width;
+    const y = Math.floor(index / mask.width);
+    left = Math.min(left, x);
+    top = Math.min(top, y);
+    right = Math.max(right, x);
+    bottom = Math.max(bottom, y);
+  }
+  if (right < left || bottom < top) return null;
+  return { left, top, right, bottom, centerX: (left + right) / 2, centerY: (top + bottom) / 2 };
+}
+
+/** Gives removal enough surrounding pixels to reconstruct and softly blend the exposed background. */
+export function createGenerativeEffectiveMask(mask: ProcessingMask, operation: "remove" | "replace" | "restyle"): ProcessingMask {
+  if (operation !== "remove") return { ...mask, data: new Uint8ClampedArray(mask.data) };
+  const expansion = Math.min(18, Math.max(3, Math.round(Math.max(mask.width, mask.height) * 0.004)));
+  const feather = Math.max(2, Math.round(expansion * 0.65));
+  const limit = expansion + feather;
+  const distances = new Float32Array(mask.data.length);
+  distances.fill(Number.POSITIVE_INFINITY);
+  for (let index = 0; index < mask.data.length; index += 1) if (mask.data[index] > 32) distances[index] = 0;
+
+  const diagonal = Math.SQRT2;
+  for (let y = 0; y < mask.height; y += 1) for (let x = 0; x < mask.width; x += 1) {
+    const index = y * mask.width + x;
+    if (x > 0) distances[index] = Math.min(distances[index], distances[index - 1] + 1);
+    if (y > 0) distances[index] = Math.min(distances[index], distances[index - mask.width] + 1);
+    if (x > 0 && y > 0) distances[index] = Math.min(distances[index], distances[index - mask.width - 1] + diagonal);
+    if (x + 1 < mask.width && y > 0) distances[index] = Math.min(distances[index], distances[index - mask.width + 1] + diagonal);
+  }
+  for (let y = mask.height - 1; y >= 0; y -= 1) for (let x = mask.width - 1; x >= 0; x -= 1) {
+    const index = y * mask.width + x;
+    if (x + 1 < mask.width) distances[index] = Math.min(distances[index], distances[index + 1] + 1);
+    if (y + 1 < mask.height) distances[index] = Math.min(distances[index], distances[index + mask.width] + 1);
+    if (x + 1 < mask.width && y + 1 < mask.height) distances[index] = Math.min(distances[index], distances[index + mask.width + 1] + diagonal);
+    if (x > 0 && y + 1 < mask.height) distances[index] = Math.min(distances[index], distances[index + mask.width - 1] + diagonal);
+  }
+
+  const data = new Uint8ClampedArray(mask.data);
+  for (let index = 0; index < data.length; index += 1) {
+    const distance = distances[index];
+    if (distance <= expansion) data[index] = 255;
+    else if (distance < limit) data[index] = Math.max(data[index], Math.round(255 * (limit - distance) / feather));
+  }
+  return { ...mask, data };
 }

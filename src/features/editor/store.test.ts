@@ -98,6 +98,16 @@ describe("filled selection preview and acceptance", () => {
     expect(mask.data[2]).toBe(0);
   });
 
+  it("records conservative lasso cleanup diagnostics", () => {
+    useEditorStore.getState().fillSelection([
+      { x: 0, y: 0 }, { x: 0.35, y: 0 }, { x: 0.7, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 },
+    ], 4);
+    const diagnostics = useEditorStore.getState().selectionDiagnostics;
+    expect(diagnostics).not.toBeNull();
+    expect(diagnostics!.cleanedPointCount).toBeLessThanOrEqual(diagnostics!.rawPointCount);
+    expect(useEditorStore.getState().versions).toHaveLength(1);
+  });
+
   it("preview and discard never advance accepted history", () => {
     useEditorStore.getState().fillSelection(firstPixelContour);
     expect(useEditorStore.getState().createPreview()).toBe(true);

@@ -22,8 +22,11 @@
 }
 
 * { box-sizing: border-box; }
-html, body { margin: 0; min-height: 100%; }
+html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
 body { background: var(--paper); color: var(--ink); font-family: "Manrope", sans-serif; }
+button, label, select, input, textarea { -webkit-tap-highlight-color: transparent; }
+button, select, input, textarea { transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease, opacity 140ms ease; }
+::selection { background: var(--acid); color: var(--ink); }
 .tool-lasso canvas, .tool-brush canvas, .tool-eraser canvas { cursor: crosshair; }
 .tool-pan canvas { cursor: grab; }
 .tool-pan canvas:active { cursor: grabbing; }

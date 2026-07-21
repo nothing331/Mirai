@@ -17,6 +17,23 @@ export interface ProcessingMask {
   data: Uint8ClampedArray;
 }
 
+export type SelectionWarning = "self-intersection" | "large-auto-correction" | "raw-contour-preserved";
+
+export interface SelectionDiagnostics {
+  rawPointCount: number;
+  cleanedPointCount: number;
+  removedSpikeCount: number;
+  selfIntersectionCount: number;
+  areaChangeRatio: number;
+  warnings: SelectionWarning[];
+}
+
+export interface LassoVisualization {
+  rawPoints: SourcePoint[];
+  cleanedPoints: SourcePoint[];
+  showRawContour: boolean;
+}
+
 /** JSON-safe representation used when a full-resolution mask crosses a storage boundary. */
 export interface SerializedProcessingMask {
   width: number;
@@ -39,7 +56,7 @@ export interface MaskAsset extends ProcessingMask {
   id: string;
 }
 
-export type EditType = "recolor" | "remove" | "restyle";
+export type EditType = "recolor" | "remove" | "replace" | "restyle";
 export type FakeScenario = "success" | "slow" | "retryable-error" | "fatal-error";
 
 interface PreviewBase {
@@ -53,7 +70,7 @@ interface PreviewBase {
 
 export type EditPreview = PreviewBase & (
   | { type: "recolor"; method: "local"; parameters: { color: string } }
-  | { type: "remove" | "restyle"; method: "generative"; parameters: { prompt: string; providerRequestId: string } }
+  | { type: "remove" | "replace" | "restyle"; method: "generative"; parameters: { prompt: string; providerRequestId: string } }
 );
 
 interface OperationBase {
@@ -66,7 +83,7 @@ interface OperationBase {
 
 export type EditOperation = OperationBase & (
   | { type: "recolor"; method: "local"; parameters: { color: string } }
-  | { type: "remove" | "restyle"; method: "generative"; parameters: { prompt: string; providerRequestId: string } }
+  | { type: "remove" | "replace" | "restyle"; method: "generative"; parameters: { prompt: string; providerRequestId: string } }
 );
 
 export interface GenerativeRequestSnapshot {
@@ -74,7 +91,7 @@ export interface GenerativeRequestSnapshot {
   inputVersion: ImageVersion;
   selectionId: string;
   mask: ProcessingMask;
-  operation: "remove" | "restyle";
+  operation: "remove" | "replace" | "restyle";
   prompt: string;
   scenario: FakeScenario;
 }
