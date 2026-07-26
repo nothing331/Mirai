@@ -64,7 +64,7 @@ describe("filled selection preview and acceptance", () => {
     await useEditorStore.getState().retryGenerativePreview();
     const retriedSnapshot = vi.mocked(requestGenerativeCandidate).mock.calls[1][0];
     expect(retriedSnapshot.inputVersion.pixels).toEqual(failedSnapshot.inputVersion.pixels);
-    expect(retriedSnapshot.mask.data).toEqual(failedSnapshot.mask.data);
+    expect(retriedSnapshot.effectiveMask.data).toEqual(failedSnapshot.effectiveMask.data);
     expect(useEditorStore.getState().generativeState.status).toBe("preview");
   });
 

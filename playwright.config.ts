@@ -6,6 +6,6 @@ const serverCommand = process.env.E2E_PORT ? `npm run start -- --port ${port}` :
 export default defineConfig({
   testDir: "./e2e",
   webServer: { command: serverCommand, port, reuseExistingServer: false, env: { ...process.env, IMAGE_EDIT_PROVIDER: "fake" } },
-  use: { baseURL: `http://127.0.0.1:${port}`, trace: "on-first-retry" },
+  use: { baseURL: `http://127.0.0.1:${port}`, trace: "on-first-retry", permissions: ["clipboard-read", "clipboard-write"] },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
 });

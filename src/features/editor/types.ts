@@ -87,10 +87,13 @@ export type EditOperation = OperationBase & (
 );
 
 export interface GenerativeRequestSnapshot {
+  projectId: string;
   requestId: string;
+  retryOfRequestId: string | null;
   inputVersion: ImageVersion;
   selectionId: string;
-  mask: ProcessingMask;
+  selectionMask: ProcessingMask;
+  effectiveMask: ProcessingMask;
   operation: "remove" | "replace" | "restyle";
   prompt: string;
   scenario: FakeScenario;

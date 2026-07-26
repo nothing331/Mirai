@@ -1,12 +1,21 @@
 import sharp from "sharp";
+import type { ImageEditDiagnosticSink } from "@/shared/request-diagnostics";
 import type { ImageEditProvider, ImageEditRequest, ProviderCandidate } from "./contracts";
 import { ImageProviderError } from "./contracts";
 import { validateImageEditRequest } from "./validate-request";
 
 /** Produces deterministic, visibly synthetic candidates for pipeline and failure testing. */
 export class FakeImageEditProvider implements ImageEditProvider {
-  async edit(request: ImageEditRequest): Promise<ProviderCandidate> {
+  async edit(request: ImageEditRequest, diagnostics?: ImageEditDiagnosticSink): Promise<ProviderCandidate> {
     validateImageEditRequest(request);
+    await diagnostics?.event("provider-preparation", "Prepared deterministic fake-provider inputs.");
+    await diagnostics?.artifact("provider-input.png", request.imagePng, "image/png");
+    await diagnostics?.artifact("provider-mask.png", request.maskPng, "image/png");
+    await diagnostics?.metadata({
+      providerInstruction: request.prompt,
+      providerDimensions: { width: request.width, height: request.height },
+      configuration: { scenario: request.scenario ?? "success" },
+    });
     if (request.scenario === "slow") await new Promise((resolve) => setTimeout(resolve, 700));
     if (request.scenario === "retryable-error") throw new ImageProviderError("The fake provider is temporarily unavailable.", true);
     if (request.scenario === "fatal-error") throw new ImageProviderError("The fake provider rejected this edit.", false);
@@ -35,6 +44,16 @@ export class FakeImageEditProvider implements ImageEditProvider {
       }
     }
     const candidatePng = await sharp(candidate, { raw: { width: request.width, height: request.height, channels: 4 } }).png().toBuffer();
-    return { candidatePng, providerRequestId: `fake-${crypto.randomUUID()}` };
+    const providerRequestId = `fake-${crypto.randomUUID()}`;
+    await diagnostics?.event("provider-response", "Fake provider produced a deterministic candidate.");
+    await diagnostics?.artifact("provider-candidate-raw.png", candidatePng, "image/png");
+    await diagnostics?.artifact("candidate-normalized.png", candidatePng, "image/png");
+    await diagnostics?.artifact("provider-response.json", new TextEncoder().encode(JSON.stringify({
+      providerRequestId,
+      scenario: request.scenario ?? "success",
+      candidateCount: 1,
+    }, null, 2)), "application/json");
+    await diagnostics?.metadata({ providerRequestId });
+    return { candidatePng, providerRequestId };
   }
 }

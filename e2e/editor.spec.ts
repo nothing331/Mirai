@@ -31,9 +31,8 @@ test("upload, select, and recolor an image", async ({ page }) => {
   const initialX = Number(await canvas.getAttribute("data-viewport-x"));
   const initialY = Number(await canvas.getAttribute("data-viewport-y"));
   await page.getByRole("radio", { name: "Brush" }).click();
-  await page.mouse.move(bounds.x + initialX + 10, bounds.y + initialY + 10);
-  await page.mouse.down();
-  await page.mouse.up();
+  await expect(canvas).toHaveClass(/tool-brush/);
+  await canvas.locator("canvas").first().click({ position: { x: initialX + 10, y: initialY + 10 } });
   await page.getByTestId("apply-edit").click();
   await expect(page.getByTestId("preview-comparison")).toBeVisible();
   await expect(page.getByText("0 accepted edits", { exact: true })).toBeVisible();
@@ -100,14 +99,11 @@ test("fake provider supports generative success, retry, and failure states", asy
   });
   const canvas = page.getByTestId("editor-canvas");
   await expect(canvas).toBeVisible();
-  const bounds = await canvas.boundingBox();
-  if (!bounds) throw new Error("Editor canvas has no visible bounds.");
   const imageX = Number(await canvas.getAttribute("data-viewport-x"));
   const imageY = Number(await canvas.getAttribute("data-viewport-y"));
   await page.getByRole("radio", { name: "Brush" }).click();
-  await page.mouse.move(bounds.x + imageX + 10, bounds.y + imageY + 10);
-  await page.mouse.down();
-  await page.mouse.up();
+  await expect(canvas).toHaveClass(/tool-brush/);
+  await canvas.locator("canvas").first().click({ position: { x: imageX + 10, y: imageY + 10 } });
 
   await page.getByRole("radio", { name: "Remove" }).click();
   await expect(page.getByText("Fake provider scenario")).toBeVisible();
@@ -116,14 +112,28 @@ test("fake provider supports generative success, retry, and failure states", asy
   await page.getByTestId("generate-edit").click();
   await expect(page.getByTestId("preview-comparison")).toBeVisible();
   await expect(page.getByText("0 accepted edits", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Diagnostics" }).click();
+  const diagnostics = page.getByRole("dialog", { name: "Request diagnostics" });
+  await expect(diagnostics).toBeVisible();
+  await expect(diagnostics.getByText("Visual chain of custody")).toBeVisible();
+  await expect(diagnostics.getByText("01 / Source")).toBeVisible();
+  await expect(diagnostics.getByText("08 / Final preview")).toBeVisible();
+  await expect(diagnostics.getByText("Browser composited the normalized candidate through the effective mask.")).toBeVisible();
+  await diagnostics.getByRole("button", { name: "Pin evidence" }).click();
+  await expect(diagnostics.getByRole("button", { name: "Unpin" })).toBeVisible();
+  await diagnostics.getByRole("button", { name: "Unpin" }).click();
+  await expect(diagnostics.getByRole("button", { name: "Pin evidence" })).toBeVisible();
+  await diagnostics.getByRole("button", { name: "Copy for coding agent" }).click();
+  await expect(diagnostics.getByRole("button", { name: "Copied" })).toBeVisible();
+  await diagnostics.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByRole("button", { name: "Discard" }).click();
   await expect(page.getByText("0 accepted edits", { exact: true })).toBeVisible();
 
   await page.getByRole("radio", { name: "Restyle" }).click();
-  await page.getByLabel("Edit instruction").fill("brushed copper");
+  await page.getByLabel("Edit instruction", { exact: true }).fill("brushed copper");
   await scenario.selectOption("slow");
   await page.getByTestId("generate-edit").click();
-  await expect(page.getByText("Processing…")).toBeVisible();
+  await expect(page.getByTestId("generate-edit")).toContainText("Processing…");
   await expect(page.getByTestId("preview-comparison")).toBeVisible();
   await page.getByRole("button", { name: "Discard" }).click();
   await expect(page.getByText("0 accepted edits", { exact: true })).toBeVisible();
@@ -140,4 +150,7 @@ test("fake provider supports generative success, retry, and failure states", asy
   await page.getByTestId("generate-edit").click();
   await expect(page.getByText("The fake provider rejected this edit.").first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Retry same request" })).toHaveCount(0);
+  await page.getByRole("button", { name: "View diagnostics" }).click();
+  await expect(page.getByRole("dialog", { name: "Request diagnostics" }).getByText("The fake provider rejected this edit.").first()).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Request diagnostics" }).getByText("failed", { exact: true }).first()).toBeVisible();
 });

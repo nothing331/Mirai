@@ -12,7 +12,7 @@ The project initially targets normal users rather than professional design workf
 
 ## Current state
 
-The editor supports PNG/JPEG upload, pan and zoom, conservatively cleaned closed-contour selection, brush and eraser refinement, on-canvas edit instructions, deterministic recoloring, and localized generative Remove/Restyle operations. Generative editing uses a provider-neutral server boundary, a deterministic fake provider by default, and an optional OpenAI adapter. All provider candidates pass through authoritative compositing before preview. Accepted operations, versions, and masks form linear immutable history with undo/redo, and projects can be saved to local SQLite metadata plus immutable filesystem assets, reopened, and exported as PNG or JPEG.
+The editor supports PNG/JPEG upload, pan and zoom, conservatively cleaned closed-contour selection, brush and eraser refinement, on-canvas edit instructions, deterministic recoloring, and localized generative Remove/Restyle operations. Generative editing uses a provider-neutral server boundary, a deterministic fake provider by default, and an optional OpenAI adapter. All provider candidates pass through authoritative compositing before preview. Each generative request also creates a local, reproducible diagnostic bundle containing its processing timeline, masks, provider artifacts, prompts, and final preview. Accepted operations, versions, and masks form linear immutable history with undo/redo, and projects can be saved to local SQLite metadata plus immutable filesystem assets, reopened, and exported as PNG or JPEG.
 
 ## v0.1 scope
 
@@ -73,10 +73,12 @@ src/
 │   ├── canvas/           Rendering and coordinate conversion
 │   ├── masking/          Brush, eraser, and mask serialization
 │   ├── editing/          Operations, routing, and orchestration
+│   ├── diagnostics/      Request evidence browser and API client
 │   ├── history/          Versions, undo, redo, and compare
 │   └── projects/         Project metadata and persistence
 ├── server/
 │   ├── ai/               Provider interface and adapter
+│   ├── diagnostics/      Local request manifests, artifacts, and index
 │   ├── image/            Local transforms, compositing, and export
 │   └── storage/          Asset storage implementation
 └── shared/               Small cross-boundary contracts and validation
@@ -92,6 +94,8 @@ Directories should be introduced with their first real behavior. Do not create s
 - Provider credentials, SDK calls, and response normalization remain server-side.
 - Local and generative processors converge on the same preview, compositing, acceptance, and history flow.
 - The original asset and every accepted output asset are immutable.
+- Diagnostics observe the edit pipeline but cannot create operations, versions, or provider requests.
+- Diagnostic failures never change the result or status of the edit they observe.
 - Shared code remains small and cannot become a generic utility directory.
 
 ## Core concepts
@@ -207,6 +211,12 @@ preview = candidate × effectiveMask + input × (1 - effectiveMask)
 
 The application may intentionally feather or slightly dilate the mask, but this must be controlled by explicit processing parameters.
 
+### Reproducible request diagnostics
+
+Generative requests carry application-owned project and request IDs through the browser, route, provider, and diagnostic bundle. The bundle preserves the source input, original selection mask, effective mask, provider-sized inputs, raw and normalized candidates, constructed prompt, sanitized provider response, and final browser-composited preview when each artifact exists.
+
+Diagnostic metadata is indexed in local SQLite for the UI, while ordinary PNG and JSON files remain directly inspectable under `.local-edit/diagnostics/<project-id>/<request-id>/`. The newest ten completed unpinned bundles are retained globally; pinned bundles are never automatically pruned. These files contain personal images and exact prompts, remain Git-ignored, and are intended only for a locally bound development server.
+
 ### Preview and acceptance
 
 A preview does not advance history. Accepting it performs one logical operation:
@@ -252,6 +262,7 @@ These decisions are intentionally kept here until the project becomes large enou
 | Edit routing | Prefer deterministic local processing | Accepted |
 | AI integration | Application-owned provider interface | Provisional |
 | Development storage | SQLite and local filesystem | Provisional |
+| Request diagnostics | Structured local manifests plus directly inspectable artifacts | Accepted |
 
 ## Code documentation policy
 
@@ -279,6 +290,8 @@ Required behavior belongs in automated tests. High-priority tests include:
 - one accepted operation producing exactly one version
 - undo and redo version selection
 - export without an additional provider call
+- diagnostic mask dimensions and artifact integrity
+- logging failures not affecting edit behavior or accepted history
 
 ## v0.1 completion criteria
 

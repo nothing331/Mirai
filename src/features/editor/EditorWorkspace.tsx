@@ -3,10 +3,11 @@
 import dynamic from "next/dynamic";
 import Image from "next/image";
 import { ChangeEvent, useEffect, useState } from "react";
-import { Brush, Check, Download, Eraser, Focus, FolderOpen, Hand, ImagePlus, LassoSelect, Redo2, RotateCcw, Save, Sparkles, Trash2, Undo2, WandSparkles, X } from "lucide-react";
+import { Activity, Brush, Check, Copy, Download, Eraser, Focus, FolderOpen, Hand, ImagePlus, LassoSelect, Redo2, RotateCcw, Save, Sparkles, Trash2, Undo2, WandSparkles, X } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { DiagnosticsDrawer } from "@/features/diagnostics/DiagnosticsDrawer";
 import { cn } from "@/lib/utils";
 import { decodeImage, exportVersion } from "./image-data";
 import { maskHasSelection } from "./mask";
@@ -53,6 +54,7 @@ export function EditorWorkspace() {
   const [savedProjects, setSavedProjects] = useState<SavedProjectSummary[]>([]);
   const [compareWith, setCompareWith] = useState<"original" | "previous">("original");
   const [exportFormat, setExportFormat] = useState<"image/png" | "image/jpeg">("image/png");
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
 
   useEffect(() => {
     fetch("/api/image-edits").then((response) => response.json()).then((capabilities: ProviderCapabilities) => setProviderCapabilities(capabilities)).catch(() => setProviderCapabilities(null));
@@ -133,6 +135,7 @@ export function EditorWorkspace() {
   const comparisonVersion = compareWith === "previous" && currentIndex > 0 ? state.versions[currentIndex - 1] : originalVersion;
 
   return (
+    <>
     <main className="h-dvh overflow-hidden bg-[#cfcdc5] text-ink">
       <header className="flex h-14 items-center justify-between border-b border-ink bg-paper px-3 sm:px-4">
         <div className="flex min-w-0 items-center gap-3">
@@ -142,10 +145,12 @@ export function EditorWorkspace() {
             <p className="mt-1 hidden font-mono text-[9px] uppercase tracking-[.14em] text-muted sm:block">Non-destructive image workspace</p>
           </div>
         </div>
-        <div className="flex items-center gap-3 font-mono text-[9px] uppercase tracking-[.12em] text-muted">
-          <span className="hidden sm:inline">{currentVersion ? state.projectName : "No project open"}</span>
-          <span className={cn("size-2 rounded-full", currentVersion ? "bg-acid ring-1 ring-ink" : "bg-line")} aria-hidden="true" />
-          <span>{currentVersion ? "Ready" : "Empty"}</span>
+        <div className="flex min-w-0 items-center gap-2 font-mono text-[9px] uppercase tracking-[.1em] text-muted">
+          {state.projectId && <IdChip label="Project" value={state.projectId} />}
+          {state.lastRequestId && <IdChip label="Request" value={state.lastRequestId} />}
+          <Button variant="quiet" className="h-8 px-2 text-[9px]" disabled={!state.projectId} onClick={() => setDiagnosticsOpen(true)}><Activity className="size-3.5" />Diagnostics</Button>
+          <span className={cn("hidden size-2 rounded-full sm:inline", currentVersion ? "bg-acid ring-1 ring-ink" : "bg-line")} aria-hidden="true" />
+          <span className="hidden sm:inline">{currentVersion ? "Ready" : "Empty"}</span>
         </div>
       </header>
 
@@ -260,7 +265,11 @@ export function EditorWorkspace() {
               {state.generativeState.status === "failed" && (
                 <div className="grid gap-2 border-l-4 border-accent bg-[#ffd5cc] p-3 text-xs text-[#8f1d10]">
                   <span>{state.generativeState.error}</span>
-                  {state.generativeState.retryable && <Button variant="outline" onClick={() => void handleRetryPreview()}>Retry same request</Button>}
+                  <code className="break-all font-mono text-[9px]">Request {state.generativeState.snapshot.requestId}</code>
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="outline" onClick={() => setDiagnosticsOpen(true)}><Activity className="size-3.5" />View diagnostics</Button>
+                    {state.generativeState.retryable && <Button variant="outline" onClick={() => void handleRetryPreview()}>Retry same request</Button>}
+                  </div>
                 </div>
               )}
 
@@ -299,6 +308,17 @@ export function EditorWorkspace() {
         </section>
       </section>
     </main>
+    <DiagnosticsDrawer projectId={state.projectId} focusRequestId={state.lastRequestId} open={diagnosticsOpen} onClose={() => setDiagnosticsOpen(false)} />
+    </>
+  );
+}
+
+function IdChip({ label, value }: { label: string; value: string }) {
+  const compact = `${value.slice(0, 8)}…`;
+  return (
+    <button className="group hidden min-w-0 items-center gap-1 border border-line bg-[#e8e5dc] px-2 py-1.5 hover:border-ink sm:flex" title={`Copy ${label.toLowerCase()} ID: ${value}`} onClick={() => void navigator.clipboard.writeText(value)}>
+      <span className="text-[7px] text-muted">{label}</span><code className="text-[9px] text-ink">{compact}</code><Copy className="size-3 opacity-45 group-hover:opacity-100" />
+    </button>
   );
 }
 

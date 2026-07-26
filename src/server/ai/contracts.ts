@@ -1,3 +1,5 @@
+import type { ImageEditDiagnosticSink } from "../../shared/request-diagnostics";
+
 export type GenerativeOperation = "remove" | "replace" | "restyle";
 export type ProviderScenario = "success" | "slow" | "retryable-error" | "fatal-error";
 
@@ -19,11 +21,20 @@ export interface ProviderCandidate {
 }
 
 export interface ImageEditProvider {
-  edit(request: ImageEditRequest): Promise<ProviderCandidate>;
+  edit(request: ImageEditRequest, diagnostics?: ImageEditDiagnosticSink): Promise<ProviderCandidate>;
 }
 
 export class ImageProviderError extends Error {
-  constructor(message: string, public readonly retryable: boolean) {
+  constructor(
+    message: string,
+    public readonly retryable: boolean,
+    public readonly diagnostics?: {
+      providerRequestId?: string | null;
+      status?: number;
+      code?: string;
+      type?: string;
+    },
+  ) {
     super(message);
     this.name = "ImageProviderError";
   }

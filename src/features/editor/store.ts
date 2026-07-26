@@ -31,6 +31,7 @@ interface EditorState {
   maskSoftness: number;
   color: string;
   error: string | null;
+  lastRequestId: string | null;
   loadImage: (version: ImageVersion) => void;
   restoreProject: (project: { id: string; name: string; originalVersionId: string; currentVersionId: string; versions: ImageVersion[]; operations: EditOperation[]; maskAssets: MaskAsset[] }) => void;
   setProjectName: (name: string) => void;
@@ -70,6 +71,7 @@ const initialControls = {
   prompt: "",
   fakeScenario: "success" as FakeScenario,
   error: null,
+  lastRequestId: null,
 };
 
 const idleGenerativeState: GenerativePreviewState = { status: "idle", snapshot: null, error: null, retryable: false };
@@ -106,11 +108,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     lassoVisualization: null,
     viewResetKey: state.viewResetKey + 1,
     error: null,
+    lastRequestId: null,
   })),
   restoreProject: (project) => {
     const current = project.versions.find((version) => version.id === project.currentVersionId);
     if (!current) return;
-    set((state) => ({ ...project, preview: null, generativeState: idleGenerativeState, selectionMask: createMask(current.width, current.height), selectionId: crypto.randomUUID(), selectionDiagnostics: null, lassoVisualization: null, viewResetKey: state.viewResetKey + 1, error: null }));
+    set((state) => ({ ...project, preview: null, generativeState: idleGenerativeState, lastRequestId: null, selectionMask: createMask(current.width, current.height), selectionId: crypto.randomUUID(), selectionDiagnostics: null, lassoVisualization: null, viewResetKey: state.viewResetKey + 1, error: null }));
   },
   setProjectName: (projectName) => set({ projectName }),
   setViewport: (viewport) => set({ viewport }),
@@ -216,10 +219,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return false;
     }
     const snapshot: GenerativeRequestSnapshot = {
+      projectId: state.projectId!,
       requestId: crypto.randomUUID(),
+      retryOfRequestId: null,
       inputVersion: { ...input, pixels: new Uint8ClampedArray(input.pixels) },
       selectionId: state.selectionId,
-      mask: createGenerativeEffectiveMask(state.selectionMask, state.editType),
+      selectionMask: { width: state.selectionMask.width, height: state.selectionMask.height, data: new Uint8ClampedArray(state.selectionMask.data) },
+      effectiveMask: createGenerativeEffectiveMask(state.selectionMask, state.editType),
       operation: state.editType,
       prompt: state.prompt.trim(),
       scenario: state.fakeScenario,
@@ -229,7 +235,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   retryGenerativePreview: async () => {
     const state = get();
     if (state.generativeState.status !== "failed" || !state.generativeState.retryable) return false;
-    return executeGenerativeRequest({ ...state.generativeState.snapshot, requestId: crypto.randomUUID() });
+    return executeGenerativeRequest({
+      ...state.generativeState.snapshot,
+      requestId: crypto.randomUUID(),
+      retryOfRequestId: state.generativeState.snapshot.requestId,
+    });
   },
   acceptPreview: () => {
     const state = get();
@@ -300,12 +310,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
 /** Executes an immutable request snapshot and ignores responses superseded by a newer request. */
 async function executeGenerativeRequest(snapshot: GenerativeRequestSnapshot): Promise<boolean> {
-  useEditorStore.setState({ generativeState: { status: "processing", snapshot, error: null, retryable: false }, preview: null, error: null });
+  useEditorStore.setState({ generativeState: { status: "processing", snapshot, error: null, retryable: false }, lastRequestId: snapshot.requestId, preview: null, error: null });
   try {
     const candidate = await requestGenerativeCandidate(snapshot);
     const state = useEditorStore.getState();
     if (state.generativeState.snapshot?.requestId !== snapshot.requestId) return false;
-    const mask: MaskAsset = { id: crypto.randomUUID(), width: snapshot.mask.width, height: snapshot.mask.height, data: new Uint8ClampedArray(snapshot.mask.data) };
+    const mask: MaskAsset = { id: crypto.randomUUID(), width: snapshot.effectiveMask.width, height: snapshot.effectiveMask.height, data: new Uint8ClampedArray(snapshot.effectiveMask.data) };
     useEditorStore.setState({
       preview: {
         id: crypto.randomUUID(), inputVersionId: snapshot.inputVersion.id, selectionId: snapshot.selectionId,
