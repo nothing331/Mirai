@@ -1,4 +1,5 @@
 import type { ImageEditDiagnosticSink } from "../../shared/request-diagnostics";
+import type { EditPlan } from "../../shared/edit-plan";
 
 export type GenerativeOperation = "remove" | "replace" | "restyle";
 export type ProviderScenario = "success" | "slow" | "retryable-error" | "fatal-error";
@@ -11,6 +12,7 @@ export interface ImageEditRequest {
   height: number;
   operation: GenerativeOperation;
   prompt: string;
+  plan?: EditPlan;
   scenario?: ProviderScenario;
 }
 

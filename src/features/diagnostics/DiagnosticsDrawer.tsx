@@ -19,11 +19,13 @@ const visualArtifacts: Array<{ name: DiagnosticArtifactName; label: string; note
   { name: "source-input.png", label: "01 / Source", note: "Exact image version entering the request" },
   { name: "selection-mask.png", label: "02 / Selection", note: "Mask drawn by the user" },
   { name: "effective-mask.png", label: "03 / Effective mask", note: "Expanded and feathered processing boundary" },
-  { name: "provider-input.png", label: "04 / Provider input", note: "Resized image sent to the provider" },
-  { name: "provider-mask.png", label: "05 / Provider mask", note: "Provider-format transparency mask" },
-  { name: "provider-candidate-raw.png", label: "06 / Raw candidate", note: "Unmodified provider image response" },
-  { name: "candidate-normalized.png", label: "07 / Normalized", note: "Candidate restored to source dimensions" },
-  { name: "final-preview.png", label: "08 / Final preview", note: "Candidate composited through the effective mask" },
+  { name: "planner-context.png", label: "04 / Planner context", note: "Full scene with the selected region highlighted" },
+  { name: "planner-selection-detail.png", label: "05 / Planner detail", note: "Close-up used to infer the selected surface" },
+  { name: "provider-input.png", label: "06 / Provider input", note: "Resized image sent to the image editor" },
+  { name: "provider-mask.png", label: "07 / Provider mask", note: "Provider-format transparency mask" },
+  { name: "provider-candidate-raw.png", label: "08 / Raw candidate", note: "Unmodified image-editor response" },
+  { name: "candidate-normalized.png", label: "09 / Normalized", note: "Candidate restored to source dimensions" },
+  { name: "final-preview.png", label: "10 / Final preview", note: "Candidate composited through the effective mask" },
 ];
 
 interface DiagnosticsDrawerProps {
@@ -218,7 +220,31 @@ export function DiagnosticsDrawer({ projectId, focusRequestId, open, onClose }: 
                 </section>
 
                 <section>
-                  <SectionHeading index="B" title="Processing timeline" subtitle={`${manifest.durationMs ?? "Live"}${typeof manifest.durationMs === "number" ? "ms total" : ""}`} />
+                  <SectionHeading index="B" title="Provider calls" subtitle={`${manifest.providerCalls.length} recorded call${manifest.providerCalls.length === 1 ? "" : "s"} in this logical request.`} />
+                  <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                    {manifest.providerCalls.map((call) => (
+                      <article key={call.stage} className="border border-ink bg-[#e6e3da] p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <strong className="font-mono text-[10px] uppercase tracking-wider">{call.stage.replace("-", " ")}</strong>
+                          <StatusBadge status={call.status === "processing" ? "processing" : call.status === "succeeded" ? "succeeded" : "failed"} />
+                        </div>
+                        <dl className="mt-3 grid grid-cols-2 border border-ink/40">
+                          <Fact label="Provider" value={call.provider} />
+                          <Fact label="Model" value={call.model} />
+                          <Fact label="Duration" value={call.durationMs === null ? "Live" : `${call.durationMs}ms`} />
+                          <Fact label="Retryable" value={call.retryable === null ? "—" : String(call.retryable)} />
+                        </dl>
+                        {call.providerRequestId && <div className="mt-2 border border-ink bg-[#171714] text-white"><Identifier label="Provider request" value={call.providerRequestId} copied={copied} onCopy={copy} /></div>}
+                        {Object.keys(call.usage).length > 0 && <p className="mt-2 break-words font-mono text-[9px] text-muted">Usage · {Object.entries(call.usage).map(([key, value]) => `${key}=${value}`).join(" · ")}</p>}
+                        {call.error && <p className="mt-2 border-l-4 border-accent bg-[#fff0eb] p-2 text-[10px] text-[#8f1d10]">{call.error.message}</p>}
+                      </article>
+                    ))}
+                    {manifest.providerCalls.length === 0 && <p className="border border-ink/30 bg-[#e6e3da] p-3 text-xs text-muted">This legacy bundle predates per-provider call tracking.</p>}
+                  </div>
+                </section>
+
+                <section>
+                  <SectionHeading index="C" title="Processing timeline" subtitle={`${manifest.durationMs ?? "Live"}${typeof manifest.durationMs === "number" ? "ms total" : ""}`} />
                   <ol className="mt-3 border border-ink">
                     {manifest.events.map((event, index) => (
                       <li key={event.id} className="grid grid-cols-[28px_1fr_auto] gap-3 border-b border-ink/20 bg-[#e6e3da] p-3 last:border-b-0">
@@ -232,20 +258,26 @@ export function DiagnosticsDrawer({ projectId, focusRequestId, open, onClose }: 
 
                 <section className="grid gap-3 lg:grid-cols-2">
                   <div>
-                    <SectionHeading index="C" title="Prompt evidence" subtitle="User intent compared with the exact provider instruction." />
+                    <SectionHeading index="D" title="Prompt evidence" subtitle="User intent, contextual interpretation, and the exact image-editor instruction." />
                     <dl className="mt-3 grid gap-3">
                       <EvidenceText label="User prompt" value={manifest.userPrompt || "(empty removal context)"} />
-                      <EvidenceText label="Provider instruction" value={manifest.providerInstruction ?? "Not constructed before failure."} />
+                      {manifest.plannerInstruction && <EvidenceText label="Planner instruction" value={manifest.plannerInstruction} />}
+                      {manifest.editPlan && <EvidenceText label="Structured edit plan" value={JSON.stringify(manifest.editPlan, null, 2)} />}
+                      <EvidenceText label="Image-editor instruction" value={manifest.providerInstruction ?? "Not constructed before failure."} />
                     </dl>
                   </div>
                   <div>
-                    <SectionHeading index="D" title="Request facts" subtitle="Configuration and dimensions used for this attempt." />
+                    <SectionHeading index="E" title="Request facts" subtitle="Configuration and dimensions used for this attempt." />
                     <dl className="mt-3 grid grid-cols-2 border border-ink">
                       <Fact label="Source" value={manifest.sourceDimensions ? `${manifest.sourceDimensions.width} × ${manifest.sourceDimensions.height}` : "Unknown"} />
                       <Fact label="Provider" value={manifest.providerDimensions ? `${manifest.providerDimensions.width} × ${manifest.providerDimensions.height}` : "Unknown"} />
                       {Object.entries(manifest.configuration).map(([key, value]) => <Fact key={key} label={key} value={String(value)} />)}
                     </dl>
-                    {manifest.artifacts["provider-response.json"] && <a className="mt-3 inline-flex border-b border-ink font-mono text-[10px] uppercase tracking-wider hover:bg-acid" href={diagnosticArtifactUrl(manifest.requestId, "provider-response.json")} target="_blank" rel="noreferrer">Open sanitized provider response ↗</a>}
+                    <div className="mt-3 flex flex-wrap gap-3">
+                      {manifest.artifacts["planner-response.json"] && <a className="inline-flex border-b border-ink font-mono text-[10px] uppercase tracking-wider hover:bg-acid" href={diagnosticArtifactUrl(manifest.requestId, "planner-response.json")} target="_blank" rel="noreferrer">Open planner response ↗</a>}
+                      {manifest.artifacts["edit-plan.json"] && <a className="inline-flex border-b border-ink font-mono text-[10px] uppercase tracking-wider hover:bg-acid" href={diagnosticArtifactUrl(manifest.requestId, "edit-plan.json")} target="_blank" rel="noreferrer">Open edit plan ↗</a>}
+                      {manifest.artifacts["provider-response.json"] && <a className="inline-flex border-b border-ink font-mono text-[10px] uppercase tracking-wider hover:bg-acid" href={diagnosticArtifactUrl(manifest.requestId, "provider-response.json")} target="_blank" rel="noreferrer">Open image response ↗</a>}
+                    </div>
                     {manifest.error?.stack && <details className="mt-4 border border-accent bg-[#fff0eb] p-3"><summary className="cursor-pointer font-mono text-[10px] uppercase tracking-wider text-[#8f1d10]">Server error stack</summary><pre className="mt-3 overflow-x-auto whitespace-pre-wrap text-[10px] leading-relaxed">{manifest.error.stack}</pre></details>}
                   </div>
                 </section>

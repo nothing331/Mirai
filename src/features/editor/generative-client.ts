@@ -6,10 +6,16 @@ interface GenerativeCandidate {
   pixels: Uint8ClampedArray;
   dataUrl: string;
   providerRequestId: string;
+  diagnosticRequestId: string;
 }
 
 export class GenerativeRequestError extends Error {
-  constructor(message: string, public readonly retryable: boolean, public readonly requestId?: string) {
+  constructor(
+    message: string,
+    public readonly retryable: boolean,
+    public readonly requestId?: string,
+    public readonly imageGenerationAttempted = false,
+  ) {
     super(message);
     this.name = "GenerativeRequestError";
   }
@@ -38,10 +44,19 @@ export async function requestGenerativeCandidate(snapshot: GenerativeRequestSnap
     requestId?: string;
     error?: string;
     retryable?: boolean;
+    imageGenerationAttempted?: boolean;
   };
   const responseRequestId = payload.requestId ?? response.headers.get("x-request-id") ?? snapshot.requestId;
   if (!response.ok || !payload.candidateBase64 || !payload.providerRequestId) {
-    throw new GenerativeRequestError(payload.error ?? "The image provider returned an invalid response.", payload.retryable ?? false, responseRequestId);
+    if (payload.imageGenerationAttempted === false) {
+      window.dispatchEvent(new CustomEvent("image-generation-skipped", { detail: { requestId: responseRequestId } }));
+    }
+    throw new GenerativeRequestError(
+      payload.error ?? "The image provider returned an invalid response.",
+      payload.retryable ?? false,
+      responseRequestId,
+      payload.imageGenerationAttempted ?? false,
+    );
   }
   const candidateBlob = await fetch(`data:image/png;base64,${payload.candidateBase64}`).then((result) => result.blob());
   const candidate = await decodeImage(new File([candidateBlob], "candidate.png", { type: "image/png" }));
@@ -51,7 +66,7 @@ export async function requestGenerativeCandidate(snapshot: GenerativeRequestSnap
   const pixels = compositeCandidate(snapshot.inputVersion.pixels, candidate.pixels, snapshot.effectiveMask);
   const dataUrl = pixelsToDataUrl(pixels, candidate.width, candidate.height);
   await uploadFinalPreview(snapshot.projectId, responseRequestId, dataUrl);
-  return { pixels, dataUrl, providerRequestId: payload.providerRequestId };
+  return { pixels, dataUrl, providerRequestId: payload.providerRequestId, diagnosticRequestId: responseRequestId };
 }
 
 /** Encodes positive selection alpha as a full-resolution PNG mask for transport. */

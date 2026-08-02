@@ -107,7 +107,7 @@ export class RequestDiagnosticRepository {
       while (statement.step()) {
         const manifestPath = String(statement.getAsObject().manifest_path);
         try {
-          const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as RequestDiagnosticManifest;
+          const manifest = normalizeDiagnosticManifest(JSON.parse(await readFile(manifestPath, "utf8")));
           summaries.push(toSummary(manifest));
         } catch {
           // A partially removed bundle is ignored and cleaned by the next retention pass.
@@ -201,7 +201,7 @@ export class RequestDiagnosticRepository {
       }
       const manifestPath = String(statement.getAsObject().manifest_path);
       statement.free();
-      return JSON.parse(await readFile(manifestPath, "utf8")) as RequestDiagnosticManifest;
+      return normalizeDiagnosticManifest(JSON.parse(await readFile(manifestPath, "utf8")));
     } finally {
       database.close();
     }
@@ -218,6 +218,20 @@ export class RequestDiagnosticRepository {
       database.close();
     }
   }
+}
+
+export function normalizeDiagnosticManifest(value: unknown): RequestDiagnosticManifest {
+  const manifest = value as Partial<RequestDiagnosticManifest> & {
+    schemaVersion?: number;
+    providerCalls?: RequestDiagnosticManifest["providerCalls"];
+  };
+  return {
+    ...(manifest as RequestDiagnosticManifest),
+    schemaVersion: 2,
+    plannerInstruction: manifest.plannerInstruction ?? null,
+    editPlan: manifest.editPlan ?? null,
+    providerCalls: manifest.providerCalls ?? [],
+  };
 }
 
 function assertIdentifier(value: string): void {

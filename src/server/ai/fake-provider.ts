@@ -1,5 +1,5 @@
 import sharp from "sharp";
-import type { ImageEditDiagnosticSink } from "@/shared/request-diagnostics";
+import type { ImageEditDiagnosticSink, RequestDiagnosticError } from "@/shared/request-diagnostics";
 import type { ImageEditProvider, ImageEditRequest, ProviderCandidate } from "./contracts";
 import { ImageProviderError } from "./contracts";
 import { validateImageEditRequest } from "./validate-request";
@@ -8,6 +8,7 @@ import { validateImageEditRequest } from "./validate-request";
 export class FakeImageEditProvider implements ImageEditProvider {
   async edit(request: ImageEditRequest, diagnostics?: ImageEditDiagnosticSink): Promise<ProviderCandidate> {
     validateImageEditRequest(request);
+    await diagnostics?.beginProviderCall("image-editor", "fake", "fake-image-editor");
     await diagnostics?.event("provider-preparation", "Prepared deterministic fake-provider inputs.");
     await diagnostics?.artifact("provider-input.png", request.imagePng, "image/png");
     await diagnostics?.artifact("provider-mask.png", request.maskPng, "image/png");
@@ -17,8 +18,16 @@ export class FakeImageEditProvider implements ImageEditProvider {
       configuration: { scenario: request.scenario ?? "success" },
     });
     if (request.scenario === "slow") await new Promise((resolve) => setTimeout(resolve, 700));
-    if (request.scenario === "retryable-error") throw new ImageProviderError("The fake provider is temporarily unavailable.", true);
-    if (request.scenario === "fatal-error") throw new ImageProviderError("The fake provider rejected this edit.", false);
+    if (request.scenario === "retryable-error") {
+      const error = new ImageProviderError("The fake provider is temporarily unavailable.", true);
+      await diagnostics?.failProviderCall("image-editor", toDiagnosticError(error), true);
+      throw error;
+    }
+    if (request.scenario === "fatal-error") {
+      const error = new ImageProviderError("The fake provider rejected this edit.", false);
+      await diagnostics?.failProviderCall("image-editor", toDiagnosticError(error), false);
+      throw error;
+    }
 
     const image = await sharp(request.imagePng).ensureAlpha().resize(request.width, request.height, { fit: "fill" }).raw().toBuffer();
     const mask = await sharp(request.maskPng).ensureAlpha().resize(request.width, request.height, { fit: "fill" }).raw().toBuffer();
@@ -54,6 +63,11 @@ export class FakeImageEditProvider implements ImageEditProvider {
       candidateCount: 1,
     }, null, 2)), "application/json");
     await diagnostics?.metadata({ providerRequestId });
+    await diagnostics?.completeProviderCall("image-editor", providerRequestId);
     return { candidatePng, providerRequestId };
   }
+}
+
+function toDiagnosticError(error: ImageProviderError): RequestDiagnosticError {
+  return { name: error.name, message: error.message, stack: error.stack };
 }

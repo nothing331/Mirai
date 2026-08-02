@@ -117,7 +117,7 @@ test("fake provider supports generative success, retry, and failure states", asy
   await expect(diagnostics).toBeVisible();
   await expect(diagnostics.getByText("Visual chain of custody")).toBeVisible();
   await expect(diagnostics.getByText("01 / Source")).toBeVisible();
-  await expect(diagnostics.getByText("08 / Final preview")).toBeVisible();
+  await expect(diagnostics.getByText("10 / Final preview")).toBeVisible();
   await expect(diagnostics.getByText("Browser composited the normalized candidate through the effective mask.")).toBeVisible();
   await diagnostics.getByRole("button", { name: "Pin evidence" }).click();
   await expect(diagnostics.getByRole("button", { name: "Unpin" })).toBeVisible();
@@ -128,6 +128,19 @@ test("fake provider supports generative success, retry, and failure states", asy
   await diagnostics.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByRole("button", { name: "Discard" }).click();
   await expect(page.getByText("0 accepted edits", { exact: true })).toBeVisible();
+
+  await page.getByRole("radio", { name: "Add / replace" }).click();
+  await page.getByLabel("Edit instruction", { exact: true }).fill("add an Indian flag");
+  await scenario.selectOption("success");
+  await page.getByTestId("generate-edit").click();
+  await expect(page.getByTestId("preview-comparison")).toBeVisible();
+  await page.getByRole("button", { name: "Diagnostics" }).click();
+  await expect(diagnostics.getByText("2 recorded calls in this logical request.")).toBeVisible();
+  await expect(diagnostics.getByText("Structured edit plan")).toBeVisible();
+  await expect(diagnostics.getByText(/surface_graphic/).first()).toBeVisible();
+  await expect(diagnostics.getByRole("link", { name: "Open edit plan" })).toBeVisible();
+  await diagnostics.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("button", { name: "Discard" }).click();
 
   await page.getByRole("radio", { name: "Restyle" }).click();
   await page.getByLabel("Edit instruction", { exact: true }).fill("brushed copper");

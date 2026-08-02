@@ -319,7 +319,11 @@ async function executeGenerativeRequest(snapshot: GenerativeRequestSnapshot): Pr
     useEditorStore.setState({
       preview: {
         id: crypto.randomUUID(), inputVersionId: snapshot.inputVersion.id, selectionId: snapshot.selectionId,
-        type: snapshot.operation, method: "generative", parameters: { prompt: snapshot.prompt, providerRequestId: candidate.providerRequestId },
+        type: snapshot.operation, method: "generative", parameters: {
+          prompt: snapshot.prompt,
+          providerRequestId: candidate.providerRequestId,
+          diagnosticRequestId: candidate.diagnosticRequestId,
+        },
         mask, pixels: candidate.pixels, dataUrl: candidate.dataUrl,
       },
       generativeState: { status: "preview", snapshot, error: null, retryable: false },

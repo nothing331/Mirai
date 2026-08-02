@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { RequestDiagnosticRepository } from "./request-diagnostic-repository";
+import { normalizeDiagnosticManifest, RequestDiagnosticRepository } from "./request-diagnostic-repository";
 import { RequestDiagnosticSession } from "./request-diagnostic-service";
 
 const temporaryRoots: string[] = [];
@@ -33,6 +33,8 @@ describe("request diagnostic repository", () => {
       sourceDimensions: { width: 20, height: 10 },
     });
     await session.event("validated", "Validated exact dimensions.", { width: 20, height: 10 });
+    await session.beginProviderCall("intent-planner", "fake", "fake-intent-planner");
+    await session.completeProviderCall("intent-planner", "fake-planner-1", { inputTokens: 12 });
     await session.artifact("source-input.png", new Uint8Array([1, 2, 3, 4]), "image/png");
     await session.fail({ name: "ImageProviderError", message: "Provider rejected the request.", providerStatus: 400 }, false);
 
@@ -44,6 +46,12 @@ describe("request diagnostic repository", () => {
       userPrompt: "add a copper sphere",
       sourceDimensions: { width: 20, height: 10 },
       retryable: false,
+      providerCalls: [expect.objectContaining({
+        stage: "intent-planner",
+        providerRequestId: "fake-planner-1",
+        status: "succeeded",
+        usage: { inputTokens: 12 },
+      })],
     });
     expect(manifest?.events.map((event) => event.stage)).toEqual(["received", "validated", "failed"]);
     expect(manifest?.artifacts["source-input.png"]).toMatchObject({
@@ -53,6 +61,22 @@ describe("request diagnostic repository", () => {
     const serialized = await readFile(path.join(manifest!.bundlePath, "manifest.json"), "utf8");
     expect(serialized).not.toContain("base64");
     expect(serialized).not.toContain("OPENAI_API_KEY");
+  });
+
+  it("normalizes schema-v1 manifests without inventing provider calls", () => {
+    const manifest = normalizeDiagnosticManifest({
+      schemaVersion: 1,
+      projectId: "project-old",
+      requestId: "request-old",
+      providerRequestId: "provider-old",
+      artifacts: {},
+    });
+    expect(manifest).toMatchObject({
+      schemaVersion: 2,
+      plannerInstruction: null,
+      editPlan: null,
+      providerCalls: [],
+    });
   });
 
   it("keeps ten recent unpinned bundles globally and never prunes pinned evidence", async () => {

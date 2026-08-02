@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import type { DiagnosticArtifactName, ImageEditDiagnosticSink, RequestDiagnosticError, RequestDiagnosticManifest } from "@/shared/request-diagnostics";
+import type { DiagnosticArtifactName, ImageEditDiagnosticSink, ProviderCallStage, RequestDiagnosticError, RequestDiagnosticManifest, RequestDiagnosticProviderCall } from "@/shared/request-diagnostics";
 import { RequestDiagnosticRepository } from "./request-diagnostic-repository";
 
 export const requestDiagnosticRepository = new RequestDiagnosticRepository();
@@ -24,7 +24,7 @@ export class RequestDiagnosticSession implements ImageEditDiagnosticSink {
     const bundlePath = repository.bundlePath(input.projectId, input.requestId);
     const now = new Date().toISOString();
     const manifest: RequestDiagnosticManifest = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       projectId: input.projectId,
       requestId: input.requestId,
       retryOfRequestId: input.retryOfRequestId,
@@ -38,12 +38,15 @@ export class RequestDiagnosticSession implements ImageEditDiagnosticSink {
       completedAt: null,
       durationMs: null,
       userPrompt: "",
+      plannerInstruction: null,
+      editPlan: null,
       providerInstruction: null,
       sourceDimensions: null,
       providerDimensions: null,
       configuration: {},
       retryable: null,
       error: null,
+      providerCalls: [],
       events: [{ id: randomUUID(), timestamp: now, stage: "received", level: "info", message: "Image-edit request received." }],
       artifacts: {},
       bundlePath,
@@ -62,12 +65,63 @@ export class RequestDiagnosticSession implements ImageEditDiagnosticSink {
     await this.safely(`write ${name}`, () => this.repository.writeArtifact(this.requestId, name, bytes, mediaType));
   }
 
-  async metadata(values: Partial<Pick<RequestDiagnosticManifest, "providerRequestId" | "providerInstruction" | "providerDimensions" | "configuration">>): Promise<void> {
+  async metadata(values: Partial<Pick<RequestDiagnosticManifest, "providerRequestId" | "plannerInstruction" | "editPlan" | "providerInstruction" | "providerDimensions" | "configuration">>): Promise<void> {
     await this.safely("update metadata", () => this.repository.mutate(this.requestId, (manifest) => {
       if (values.providerRequestId !== undefined) manifest.providerRequestId = values.providerRequestId;
+      if (values.plannerInstruction !== undefined) manifest.plannerInstruction = values.plannerInstruction;
+      if (values.editPlan !== undefined) manifest.editPlan = values.editPlan;
       if (values.providerInstruction !== undefined) manifest.providerInstruction = values.providerInstruction;
       if (values.providerDimensions !== undefined) manifest.providerDimensions = values.providerDimensions;
       if (values.configuration !== undefined) manifest.configuration = { ...manifest.configuration, ...values.configuration };
+    }));
+  }
+
+  async beginProviderCall(stage: ProviderCallStage, provider: RequestDiagnosticProviderCall["provider"], model: string): Promise<void> {
+    await this.safely(`start ${stage}`, () => this.repository.mutate(this.requestId, (manifest) => {
+      const startedAt = new Date().toISOString();
+      const existing = manifest.providerCalls.findIndex((call) => call.stage === stage);
+      const call: RequestDiagnosticProviderCall = {
+        stage,
+        provider,
+        model,
+        providerRequestId: null,
+        status: "processing",
+        startedAt,
+        completedAt: null,
+        durationMs: null,
+        usage: {},
+        retryable: null,
+        error: null,
+      };
+      if (existing >= 0) manifest.providerCalls[existing] = call;
+      else manifest.providerCalls.push(call);
+    }));
+  }
+
+  async completeProviderCall(stage: ProviderCallStage, providerRequestId: string | null, usage: RequestDiagnosticProviderCall["usage"] = {}): Promise<void> {
+    await this.safely(`complete ${stage}`, () => this.repository.mutate(this.requestId, (manifest) => {
+      const call = manifest.providerCalls.find((item) => item.stage === stage);
+      if (!call) return;
+      const completedAt = new Date();
+      call.providerRequestId = providerRequestId;
+      call.status = "succeeded";
+      call.completedAt = completedAt.toISOString();
+      call.durationMs = completedAt.getTime() - new Date(call.startedAt).getTime();
+      call.usage = usage;
+    }));
+  }
+
+  async failProviderCall(stage: ProviderCallStage, error: RequestDiagnosticError, retryable: boolean, providerRequestId: string | null = null): Promise<void> {
+    await this.safely(`fail ${stage}`, () => this.repository.mutate(this.requestId, (manifest) => {
+      const call = manifest.providerCalls.find((item) => item.stage === stage);
+      if (!call) return;
+      const completedAt = new Date();
+      call.providerRequestId = providerRequestId;
+      call.status = "failed";
+      call.completedAt = completedAt.toISOString();
+      call.durationMs = completedAt.getTime() - new Date(call.startedAt).getTime();
+      call.retryable = retryable;
+      call.error = error;
     }));
   }
 

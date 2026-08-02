@@ -70,7 +70,7 @@ interface PreviewBase {
 
 export type EditPreview = PreviewBase & (
   | { type: "recolor"; method: "local"; parameters: { color: string } }
-  | { type: "remove" | "replace" | "restyle"; method: "generative"; parameters: { prompt: string; providerRequestId: string } }
+  | { type: "remove" | "replace" | "restyle"; method: "generative"; parameters: { prompt: string; providerRequestId: string; diagnosticRequestId: string } }
 );
 
 interface OperationBase {
@@ -83,7 +83,7 @@ interface OperationBase {
 
 export type EditOperation = OperationBase & (
   | { type: "recolor"; method: "local"; parameters: { color: string } }
-  | { type: "remove" | "replace" | "restyle"; method: "generative"; parameters: { prompt: string; providerRequestId: string } }
+  | { type: "remove" | "replace" | "restyle"; method: "generative"; parameters: { prompt: string; providerRequestId: string; diagnosticRequestId: string } }
 );
 
 export interface GenerativeRequestSnapshot {

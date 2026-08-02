@@ -41,11 +41,20 @@ describe("OpenAIImageEditProvider", () => {
     expect(supportsInputFidelity("gpt-image-2-2026-04-21")).toBe(false);
   });
 
-  it("treats replacements as placement envelopes and removals as reconstruction", () => {
+  it("turns a surface-graphic plan into contextual replacement constraints", () => {
     const selection = { leftPercent: 10, topPercent: 50, widthPercent: 35, heightPercent: 30, touchesImageEdge: true };
-    const replacement = buildEditInstruction("replace", "add a car", selection);
+    const replacement = buildEditInstruction("replace", "add an Indian flag", selection, {
+      target: "rocket fuselage",
+      representation: "surface_graphic",
+      integration: "Follow the fuselage curvature and painted surface.",
+      constraints: ["keep the graphic flush to the rocket"],
+      exclusions: ["flagpole", "cloth"],
+      confidence: "high",
+      rationale: "A flag on a rocket is normally a marking.",
+    });
     expect(replacement).toContain("placement envelope, not as a crop");
-    expect(replacement).toContain("entire requested subject must be visible");
+    expect(replacement).toContain("graphic applied flush to the selected surface");
+    expect(replacement).toContain("Do not add or depict: flagpole; cloth");
     expect(replacement).toContain("scale and position the requested subject away from that edge");
     const removal = buildEditInstruction("remove", "", selection);
     expect(removal).toContain("Do not leave a blur, smudge, repeated texture, halo, outline, patch, or ghost");

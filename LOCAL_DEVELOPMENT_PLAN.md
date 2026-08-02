@@ -38,6 +38,7 @@ The plan assumes approximately 1–2 hours per day. Complete and verify one mile
 | 8. v0.1 validation | Complete | Invariant, provider, history, persistence, export, and browser workflow verification |
 | 9. Selection feedback improvements | Complete | Conservative lasso cleanup, mask diagnostics, and selection-anchored edit instructions |
 | 10. Reproducible request diagnostics | Complete | Correlated request IDs, persistent processing bundles, artifact comparison, retention, pinning, and agent handoff |
+| 11. Context-aware Replace planning | Complete | Multimodal structured planning, planner failure isolation, two-call diagnostics, and history correlation |
 
 Update this table whenever a milestone begins or completes.
 
@@ -224,7 +225,7 @@ A user can close the application, reopen a project, continue editing, and export
 
 ## Next development sessions
 
-The v0.1 engineering milestones and reproducible diagnostic workflow are complete. When an image result looks wrong, pin its request in the diagnostics drawer and use “Copy for coding agent” before changing the pipeline. Future work should begin from that evidence and the deferred scope in `PROJECT.md`, without weakening the accepted-version and exact-preservation invariants.
+The v0.1 engineering milestones, context-aware Replace planner, and reproducible diagnostic workflow are complete. When an image result looks wrong, pin its request in the diagnostics drawer and use “Copy for coding agent” before changing the pipeline. Future work should begin from that evidence and the deferred scope in `PROJECT.md`, without weakening the accepted-version and exact-preservation invariants.
 
 ## Plan maintenance
 

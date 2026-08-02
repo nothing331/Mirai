@@ -26,6 +26,7 @@
     "sharp": "latest",
     "sql.js": "^1.14.1",
     "tailwind-merge": "latest",
+    "zod": "^4.4.3",
     "zustand": "latest"
   },
   "devDependencies": {

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import sharp from "sharp";
 import { ImageProviderError } from "@/server/ai/contracts";
 import type { GenerativeOperation, ProviderScenario } from "@/server/ai/contracts";
-import { configuredProviderName, createImageEditProvider, parsePositiveInteger } from "@/server/ai/provider-factory";
+import { configuredPlannerModel, configuredProviderName, createEditIntentPlanner, createImageEditProvider, parsePositiveInteger } from "@/server/ai/provider-factory";
 import { startRequestDiagnostics } from "@/server/diagnostics/request-diagnostic-service";
 import type { RequestDiagnosticError } from "@/shared/request-diagnostics";
 
@@ -13,6 +13,8 @@ export async function GET() {
   const provider = configuredProviderName();
   return Response.json({
     provider,
+    plannerModel: provider === "openai" ? configuredPlannerModel() : "fake-intent-planner",
+    imageModel: provider === "openai" ? (process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-2") : "fake-image-editor",
     fakeScenarios: provider === "fake",
     quality: provider === "openai" ? (process.env.OPENAI_IMAGE_QUALITY ?? "medium") : null,
     maxInputEdge: provider === "openai" ? parsePositiveInteger(process.env.OPENAI_IMAGE_MAX_EDGE, 1536) : null,
@@ -27,6 +29,7 @@ export async function POST(request: Request) {
   const retryOfRequestId = optionalCorrelationId(request.headers.get("x-retry-of-request-id"));
   const providerName = configuredProviderName();
   const diagnostics = await startRequestDiagnostics({ projectId, requestId, retryOfRequestId, provider: providerName });
+  let imageGenerationAttempted = false;
 
   try {
     const form = await request.formData();
@@ -80,6 +83,21 @@ export async function POST(request: Request) {
       operation,
     });
 
+    const plan = operation === "replace" ? (await createEditIntentPlanner().plan({
+      imagePng,
+      selectionMaskPng,
+      width: imageMetadata.width,
+      height: imageMetadata.height,
+      prompt,
+    }, diagnostics ?? undefined)).plan : undefined;
+    if (plan) {
+      await diagnostics?.event("final-instruction", "Constructing the image-editor instruction from the validated edit plan.", {
+        representation: plan.representation,
+        confidence: plan.confidence,
+      });
+    }
+
+    imageGenerationAttempted = true;
     const result = await createImageEditProvider().edit({
       imagePng,
       maskPng,
@@ -87,25 +105,28 @@ export async function POST(request: Request) {
       height: imageMetadata.height,
       operation: operation as GenerativeOperation,
       prompt,
+      plan,
       scenario: providerName === "fake" ? scenario as ProviderScenario : undefined,
     }, diagnostics ?? undefined);
     await diagnostics?.succeed(result.providerRequestId);
     return diagnosticResponse({
       candidateBase64: Buffer.from(result.candidatePng).toString("base64"),
       providerRequestId: result.providerRequestId,
+      imageGenerationAttempted,
       projectId,
       requestId,
     }, 200, requestId);
   } catch (error) {
     const retryable = error instanceof ImageProviderError && error.retryable;
     const status = error instanceof RequestValidationError ? 400 : retryable ? 503 : 500;
-    if (error instanceof ImageProviderError && error.diagnostics?.providerRequestId) {
+    if (imageGenerationAttempted && error instanceof ImageProviderError && error.diagnostics?.providerRequestId) {
       await diagnostics?.metadata({ providerRequestId: error.diagnostics.providerRequestId });
     }
     await diagnostics?.fail(toDiagnosticError(error), retryable);
     return diagnosticResponse({
       error: error instanceof Error ? error.message : "Image generation failed.",
       retryable,
+      imageGenerationAttempted,
       projectId,
       requestId,
     }, status, requestId);

@@ -1,8 +1,9 @@
 import OpenAI, { toFile } from "openai";
 import sharp from "sharp";
-import type { ImageEditDiagnosticSink } from "@/shared/request-diagnostics";
+import type { ImageEditDiagnosticSink, RequestDiagnosticError } from "@/shared/request-diagnostics";
 import type { ImageEditProvider, ImageEditRequest, ProviderCandidate } from "./contracts";
 import { ImageProviderError } from "./contracts";
+import { buildPlannedContext } from "./intent-planner";
 import { validateImageEditRequest } from "./validate-request";
 
 /** Adapts OpenAI image edits to the application-owned provider contract. */
@@ -27,7 +28,7 @@ export class OpenAIImageEditProvider implements ImageEditProvider {
       const providerImage = await sharp(request.imagePng).resize(providerWidth, providerHeight, { fit: "fill" }).png().toBuffer();
       const providerMask = await makeOpenAITransparencyMask(request.maskPng, providerWidth, providerHeight);
       const selection = await describeSelection(request.maskPng, request.width, request.height);
-      const instruction = buildEditInstruction(request.operation, request.prompt, selection);
+      const instruction = buildEditInstruction(request.operation, request.prompt, selection, request.plan);
       await diagnostics?.event("provider-preparation", "Prepared resized provider image, transparency mask, and instruction.", { providerWidth, providerHeight });
       await diagnostics?.artifact("provider-input.png", providerImage, "image/png");
       await diagnostics?.artifact("provider-mask.png", providerMask, "image/png");
@@ -36,6 +37,7 @@ export class OpenAIImageEditProvider implements ImageEditProvider {
         providerDimensions: { width: providerWidth, height: providerHeight },
         configuration: { model: this.model, quality: this.quality, maxInputEdge: this.maxInputEdge, outputFormat: "png" },
       });
+      await diagnostics?.beginProviderCall("image-editor", "openai", this.model);
       await diagnostics?.event("provider-call", "Calling the OpenAI image-edit provider.");
       const { data: response, request_id: providerRequestId } = await this.client.images.edit({
         model: this.model,
@@ -48,7 +50,7 @@ export class OpenAIImageEditProvider implements ImageEditProvider {
         output_format: "png",
       }).withResponse();
       const encoded = response.data?.[0]?.b64_json;
-      if (!encoded) throw new ImageProviderError("OpenAI returned no image candidate.", true);
+      if (!encoded) throw new ImageProviderError("OpenAI returned no image candidate.", true, { providerRequestId });
       const rawCandidate = Buffer.from(encoded, "base64");
       await diagnostics?.event("provider-response", "OpenAI returned an image candidate.", { candidateCount: response.data?.length ?? 0 });
       await diagnostics?.artifact("provider-candidate-raw.png", rawCandidate, "image/png");
@@ -62,24 +64,25 @@ export class OpenAIImageEditProvider implements ImageEditProvider {
         size: response.size,
         candidates: response.data?.map((candidate) => ({ revisedPrompt: candidate.revised_prompt ?? null })) ?? [],
       }, null, 2)), "application/json");
+      await diagnostics?.completeProviderCall("image-editor", providerRequestId, flattenUsage(response.usage));
       const normalized = await sharp(rawCandidate).resize(request.width, request.height, { fit: "fill" }).png().toBuffer();
       await diagnostics?.event("normalization", "Normalized the provider candidate to source-image dimensions.", { width: request.width, height: request.height });
       await diagnostics?.artifact("candidate-normalized.png", normalized, "image/png");
       await diagnostics?.metadata({ providerRequestId });
       return { candidatePng: normalized, providerRequestId: providerRequestId ?? `openai-unreported-${crypto.randomUUID()}` };
     } catch (error) {
-      if (error instanceof ImageProviderError) throw error;
-      const status = error instanceof OpenAI.APIError ? error.status : undefined;
-      throw new ImageProviderError(
+      const providerError = error instanceof ImageProviderError ? error : new ImageProviderError(
         error instanceof Error ? error.message : "OpenAI image editing failed.",
-        status === 408 || status === 409 || status === 429 || (status !== undefined && status >= 500),
+        isRetryableStatus(error instanceof OpenAI.APIError ? error.status : undefined),
         error instanceof OpenAI.APIError ? {
           providerRequestId: error.requestID,
-          status,
+          status: error.status,
           code: error.code ?? undefined,
           type: error.type,
         } : undefined,
       );
+      await diagnostics?.failProviderCall("image-editor", toDiagnosticError(providerError), providerError.retryable, providerError.diagnostics?.providerRequestId);
+      throw providerError;
     }
   }
 }
@@ -99,16 +102,41 @@ interface SelectionDescription {
 }
 
 /** Builds operation-specific constraints so a selection is treated as context, placement, or material—not a crop. */
-export function buildEditInstruction(operation: ImageEditRequest["operation"], prompt: string, selection: SelectionDescription): string {
+export function buildEditInstruction(operation: ImageEditRequest["operation"], prompt: string, selection: SelectionDescription, plan?: ImageEditRequest["plan"]): string {
   const geometry = `The editable region begins at ${selection.leftPercent}% from the left and ${selection.topPercent}% from the top, and spans ${selection.widthPercent}% of the image width by ${selection.heightPercent}% of the image height.`;
   if (operation === "remove") {
     return `Remove the selected subject completely. Reconstruct the background continuously across the entire editable region using the surrounding scene as evidence. Continue visible lines, surfaces, shadows, texture, depth, perspective, lighting, and natural irregularities through the removed area. Do not leave a blur, smudge, repeated texture, halo, outline, patch, or ghost of the removed subject. Do not add any new object, person, text, decoration, or focal element. ${geometry} Preserve all content outside the editable region exactly. ${prompt}`.trim();
   }
   if (operation === "replace") {
     const edgeConstraint = selection.touchesImageEdge ? "The editable region touches an image edge, so scale and position the requested subject away from that edge unless the instruction explicitly asks for an intentionally cropped subject." : "Keep clear breathing room between the complete subject and every edge of the editable region.";
-    return `Add or replace content according to this instruction: ${prompt}. Treat the editable region as a placement envelope, not as a crop and not as an area that must be completely filled. The entire requested subject must be visible and recognizable inside the editable region: include all of its major parts, do not cut it off at the mask or image boundary, and scale it down when necessary. ${edgeConstraint} Ground it convincingly in the scene with correct perspective, scale, contact, occlusion, lighting, reflections, and shadows. ${geometry} Preserve all content outside the editable region exactly and introduce no unrelated objects or text.`;
+    const plannedContext = plan ? buildPlannedContext(plan) : "Infer the most physically plausible representation from the selected surface and surrounding scene.";
+    return `Add or replace content according to this instruction: ${prompt}. ${plannedContext} Treat the editable region as a placement envelope, not as a crop and not as an area that must be completely filled. Keep the requested content recognizable and entirely inside the editable region, scaling it down when necessary. ${edgeConstraint} Integrate it convincingly with correct perspective, scale, contact, occlusion, lighting, reflections, and shadows appropriate to its planned representation. ${geometry} Preserve all content outside the editable region exactly and introduce no unrelated objects or text.`;
   }
   return `Restyle the existing selected content according to this instruction: ${prompt}. Keep the selected subject's identity, silhouette, geometry, scale, and position. Change only the requested appearance or material; do not add a new subject or crop existing parts. Match the scene's lighting and perspective. ${geometry} Preserve all content outside the editable region exactly.`;
+}
+
+function flattenUsage(usage: unknown): Record<string, string | number | boolean | null> {
+  if (!usage || typeof usage !== "object") return {};
+  const result: Record<string, string | number | boolean | null> = {};
+  for (const [key, value] of Object.entries(usage)) {
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean" || value === null) result[key] = value;
+  }
+  return result;
+}
+
+function isRetryableStatus(status: number | undefined): boolean {
+  return status === 408 || status === 409 || status === 429 || (status !== undefined && status >= 500);
+}
+
+function toDiagnosticError(error: ImageProviderError): RequestDiagnosticError {
+  return {
+    name: error.name,
+    message: error.message,
+    stack: error.stack,
+    providerStatus: error.diagnostics?.status,
+    providerCode: error.diagnostics?.code,
+    providerType: error.diagnostics?.type,
+  };
 }
 
 async function describeSelection(maskPng: Uint8Array, width: number, height: number): Promise<SelectionDescription> {

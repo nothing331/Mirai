@@ -38,6 +38,8 @@ const editTypes: Array<{ value: EditType; label: string }> = [
 interface ProviderCapabilities {
   provider: "fake" | "openai";
   fakeScenarios: boolean;
+  plannerModel: string;
+  imageModel: string;
   quality: string | null;
   maxInputEdge: number | null;
   maxRealRequestsPerSession: number;
@@ -66,6 +68,18 @@ export function EditorWorkspace() {
     return () => window.clearTimeout(restoreUsage);
   }, []);
 
+  useEffect(() => {
+    const releaseUnusedGeneration = () => {
+      setRealRequestsUsed((current) => {
+        const nextUsage = Math.max(0, current - 1);
+        sessionStorage.setItem("local-edit-real-requests", String(nextUsage));
+        return nextUsage;
+      });
+    };
+    window.addEventListener("image-generation-skipped", releaseUnusedGeneration);
+    return () => window.removeEventListener("image-generation-skipped", releaseUnusedGeneration);
+  }, []);
+
   /** Confirms and counts a paid request before allowing it to reach the real provider. */
   function authorizeProviderRequest(label: string): boolean {
     if (providerCapabilities?.provider !== "openai") return true;
@@ -73,7 +87,7 @@ export function EditorWorkspace() {
       state.setError(`The session limit of ${providerCapabilities.maxRealRequestsPerSession} real API requests has been reached.`);
       return false;
     }
-    const confirmed = window.confirm(`${label} will make a paid OpenAI image request.\n\nQuality: ${providerCapabilities.quality}\nMaximum input edge: ${providerCapabilities.maxInputEdge}px\nSession usage after confirmation: ${realRequestsUsed + 1}/${providerCapabilities.maxRealRequestsPerSession}`);
+    const confirmed = window.confirm(`${label} will run context planning and, if planning succeeds, one paid OpenAI image request.\n\nPlanner: ${providerCapabilities.plannerModel}\nImage model: ${providerCapabilities.imageModel}\nQuality: ${providerCapabilities.quality}\nMaximum input edge: ${providerCapabilities.maxInputEdge}px\nSession usage after confirmation: ${realRequestsUsed + 1}/${providerCapabilities.maxRealRequestsPerSession}`);
     if (confirmed) {
       const nextUsage = realRequestsUsed + 1;
       setRealRequestsUsed(nextUsage);

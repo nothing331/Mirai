@@ -30,7 +30,7 @@ describe("filled selection preview and acceptance", () => {
   it("generative processing and preview do not advance history", async () => {
     useEditorStore.getState().fillSelection(firstPixelContour);
     useEditorStore.getState().setEditType("remove");
-    vi.mocked(requestGenerativeCandidate).mockResolvedValue({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:image/png;base64,candidate", providerRequestId: "fake-1" });
+    vi.mocked(requestGenerativeCandidate).mockResolvedValue({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:image/png;base64,candidate", providerRequestId: "fake-1", diagnosticRequestId: "request-1" });
     expect(await useEditorStore.getState().requestGenerativePreview()).toBe(true);
     const state = useEditorStore.getState();
     expect(state.generativeState.status).toBe("preview");
@@ -43,13 +43,13 @@ describe("filled selection preview and acceptance", () => {
     useEditorStore.getState().fillSelection(firstPixelContour);
     useEditorStore.getState().setEditType("restyle");
     useEditorStore.getState().setPrompt("brushed copper");
-    vi.mocked(requestGenerativeCandidate).mockResolvedValue({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:image/png;base64,candidate", providerRequestId: "fake-2" });
+    vi.mocked(requestGenerativeCandidate).mockResolvedValue({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:image/png;base64,candidate", providerRequestId: "fake-2", diagnosticRequestId: "request-2" });
     await useEditorStore.getState().requestGenerativePreview();
     useEditorStore.getState().acceptPreview();
     const state = useEditorStore.getState();
     expect(state.versions).toHaveLength(2);
     expect(state.operations).toHaveLength(1);
-    expect(state.operations[0]).toMatchObject({ type: "restyle", method: "generative", parameters: { prompt: "brushed copper", providerRequestId: "fake-2" } });
+    expect(state.operations[0]).toMatchObject({ type: "restyle", method: "generative", parameters: { prompt: "brushed copper", providerRequestId: "fake-2", diagnosticRequestId: "request-2" } });
   });
 
   it("retries an immutable snapshot after a retryable failure", async () => {
@@ -57,7 +57,7 @@ describe("filled selection preview and acceptance", () => {
     useEditorStore.getState().setEditType("remove");
     vi.mocked(requestGenerativeCandidate)
       .mockRejectedValueOnce(new GenerativeRequestError("temporary", true))
-      .mockResolvedValueOnce({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:image/png;base64,candidate", providerRequestId: "fake-3" });
+      .mockResolvedValueOnce({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:image/png;base64,candidate", providerRequestId: "fake-3", diagnosticRequestId: "request-3" });
     await useEditorStore.getState().requestGenerativePreview();
     const failedSnapshot = useEditorStore.getState().generativeState.snapshot!;
     expect(useEditorStore.getState().generativeState).toMatchObject({ status: "failed", retryable: true });
@@ -71,14 +71,14 @@ describe("filled selection preview and acceptance", () => {
   it("ignores a response superseded by a newer request", async () => {
     useEditorStore.getState().fillSelection(firstPixelContour);
     useEditorStore.getState().setEditType("remove");
-    const resolvers: Array<(value: { pixels: Uint8ClampedArray; dataUrl: string; providerRequestId: string }) => void> = [];
+    const resolvers: Array<(value: { pixels: Uint8ClampedArray; dataUrl: string; providerRequestId: string; diagnosticRequestId: string }) => void> = [];
     vi.mocked(requestGenerativeCandidate).mockImplementation(() => new Promise((resolve) => resolvers.push(resolve)));
     const older = useEditorStore.getState().requestGenerativePreview();
     const newer = useEditorStore.getState().requestGenerativePreview();
-    resolvers[0]({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:old", providerRequestId: "old" });
+    resolvers[0]({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:old", providerRequestId: "old", diagnosticRequestId: "request-old" });
     expect(await older).toBe(false);
     expect(useEditorStore.getState().preview).toBeNull();
-    resolvers[1]({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:new", providerRequestId: "new" });
+    resolvers[1]({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:new", providerRequestId: "new", diagnosticRequestId: "request-new" });
     expect(await newer).toBe(true);
     const preview = useEditorStore.getState().preview;
     expect(preview?.method === "generative" ? preview.parameters.providerRequestId : null).toBe("new");

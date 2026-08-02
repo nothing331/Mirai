@@ -12,7 +12,7 @@ The project initially targets normal users rather than professional design workf
 
 ## Current state
 
-The editor supports PNG/JPEG upload, pan and zoom, conservatively cleaned closed-contour selection, brush and eraser refinement, on-canvas edit instructions, deterministic recoloring, and localized generative Remove/Restyle operations. Generative editing uses a provider-neutral server boundary, a deterministic fake provider by default, and an optional OpenAI adapter. All provider candidates pass through authoritative compositing before preview. Each generative request also creates a local, reproducible diagnostic bundle containing its processing timeline, masks, provider artifacts, prompts, and final preview. Accepted operations, versions, and masks form linear immutable history with undo/redo, and projects can be saved to local SQLite metadata plus immutable filesystem assets, reopened, and exported as PNG or JPEG.
+The editor supports PNG/JPEG upload, pan and zoom, conservatively cleaned closed-contour selection, brush and eraser refinement, on-canvas edit instructions, deterministic recoloring, and localized generative Remove/Replace/Restyle operations. Replace requests use a low-cost multimodal intent planner to turn short instructions into scene-aware structured plans before image generation. Generative editing uses provider-neutral server boundaries, deterministic fake implementations by default, and optional OpenAI adapters. All provider candidates pass through authoritative compositing before preview. Each generative request also creates a local, reproducible diagnostic bundle containing its processing timeline, masks, provider calls, artifacts, prompts, plan, and final preview. Accepted operations, versions, and masks form linear immutable history with undo/redo, and projects can be saved to local SQLite metadata plus immutable filesystem assets, reopened, and exported as PNG or JPEG.
 
 ## v0.1 scope
 
@@ -188,7 +188,7 @@ Preview
 | Change material | Generative image editing |
 | Generate missing content | Generative image editing |
 
-For v0.1, the user selects the operation explicitly. Automatic natural-language classification is deferred.
+For v0.1, the user selects the operation explicitly. Replace performs contextual interpretation inside that chosen operation; automatic classification between operations remains deferred.
 
 ### Generative input
 
@@ -200,6 +200,12 @@ Send the provider:
 - preservation-oriented context
 
 Do not send only an isolated object in the initial implementation. The surrounding image supplies lighting, texture, perspective, and boundary context.
+
+### Context-aware Replace planning
+
+Replace sends a highlighted full-scene view, a highlighted selection detail, and the user's short instruction to an application-owned text-and-vision planner. The planner returns a validated representation, target, integration rules, constraints, exclusions, confidence, and diagnostic rationale. The application deterministically converts that plan into the image-editor instruction; rationale is never sent to image generation.
+
+The planner is text-only and cannot create image pixels. Planner failure stops the pipeline before the more expensive image request. Remove and Restyle continue directly to the image provider.
 
 ### Authoritative compositing
 
@@ -213,7 +219,7 @@ The application may intentionally feather or slightly dilate the mask, but this 
 
 ### Reproducible request diagnostics
 
-Generative requests carry application-owned project and request IDs through the browser, route, provider, and diagnostic bundle. The bundle preserves the source input, original selection mask, effective mask, provider-sized inputs, raw and normalized candidates, constructed prompt, sanitized provider response, and final browser-composited preview when each artifact exists.
+Generative requests carry application-owned project and request IDs through the browser, route, providers, accepted operation, and diagnostic bundle. One user attempt remains one bundle even when Replace makes two provider calls. Schema-v2 manifests preserve ordered planner and image-editor call records, both provider request IDs, highlighted planning views, the structured plan, source and effective masks, provider-sized inputs, raw and normalized candidates, constructed prompt, sanitized provider responses, and final browser-composited preview when each artifact exists. Schema-v1 bundles remain readable.
 
 Diagnostic metadata is indexed in local SQLite for the UI, while ordinary PNG and JSON files remain directly inspectable under `.local-edit/diagnostics/<project-id>/<request-id>/`. The newest ten completed unpinned bundles are retained globally; pinned bundles are never automatically pruned. These files contain personal images and exact prompts, remain Git-ignored, and are intended only for a locally bound development server.
 
@@ -263,6 +269,7 @@ These decisions are intentionally kept here until the project becomes large enou
 | AI integration | Application-owned provider interface | Provisional |
 | Development storage | SQLite and local filesystem | Provisional |
 | Request diagnostics | Structured local manifests plus directly inspectable artifacts | Accepted |
+| Replace intent planning | Structured multimodal plan before image generation | Accepted |
 
 ## Code documentation policy
 
