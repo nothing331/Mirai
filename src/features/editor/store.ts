@@ -2,9 +2,10 @@ import { create } from "zustand";
 import { GenerativeRequestError, requestGenerativeCandidate } from "./generative-client";
 import { pixelsToDataUrl } from "./image-data";
 import { cleanRasterMask, unionMasks } from "./mask-cleanup";
-import { createGenerativeEffectiveMask, createMask, fillPolygonMask, maskHasSelection, paintMask } from "./mask";
+import { createGenerativeProviderMask, createMask, fillPolygonMask, maskHasSelection, paintMask } from "./mask";
 import { recolorPixels } from "./recolor";
 import { cleanLassoContour } from "./selection-geometry";
+import type { EditBoundaryPolicy } from "@/shared/edit-boundary";
 import type { EditOperation, EditPreview, EditType, FakeScenario, GenerativePreviewState, GenerativeRequestSnapshot, ImageVersion, LassoVisualization, MaskAsset, ProcessingMask, SelectionDiagnostics, SourcePoint, Tool, Viewport } from "./types";
 
 interface EditorState {
@@ -19,6 +20,7 @@ interface EditorState {
   editType: EditType;
   prompt: string;
   fakeScenario: FakeScenario;
+  boundaryPolicy: EditBoundaryPolicy;
   generativeState: GenerativePreviewState;
   selectionMask: ProcessingMask | null;
   selectionId: string | null;
@@ -45,6 +47,7 @@ interface EditorState {
   setEditType: (editType: EditType) => void;
   setPrompt: (prompt: string) => void;
   setFakeScenario: (scenario: FakeScenario) => void;
+  setBoundaryPolicy: (policy: EditBoundaryPolicy) => void;
   fillSelection: (points: SourcePoint[], viewportScale?: number) => void;
   paintSelection: (from: SourcePoint, to: SourcePoint) => void;
   clearSelection: () => void;
@@ -70,6 +73,7 @@ const initialControls = {
   editType: "recolor" as EditType,
   prompt: "",
   fakeScenario: "success" as FakeScenario,
+  boundaryPolicy: "review" as EditBoundaryPolicy,
   error: null,
   lastRequestId: null,
 };
@@ -126,6 +130,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setEditType: (editType) => set({ editType, preview: null, generativeState: idleGenerativeState, error: null }),
   setPrompt: (prompt) => set({ prompt, preview: null, generativeState: idleGenerativeState }),
   setFakeScenario: (fakeScenario) => set({ fakeScenario }),
+  setBoundaryPolicy: (boundaryPolicy) => set({ boundaryPolicy, preview: null, generativeState: idleGenerativeState }),
   fillSelection: (points, viewportScale = 1) => set((state) => {
     if (!state.selectionMask) return {};
     try {
@@ -225,7 +230,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       inputVersion: { ...input, pixels: new Uint8ClampedArray(input.pixels) },
       selectionId: state.selectionId,
       selectionMask: { width: state.selectionMask.width, height: state.selectionMask.height, data: new Uint8ClampedArray(state.selectionMask.data) },
-      effectiveMask: createGenerativeEffectiveMask(state.selectionMask, state.editType),
+      providerMask: createGenerativeProviderMask(state.selectionMask, state.editType),
+      boundaryPolicy: state.boundaryPolicy,
       operation: state.editType,
       prompt: state.prompt.trim(),
       scenario: state.fakeScenario,
@@ -315,7 +321,7 @@ async function executeGenerativeRequest(snapshot: GenerativeRequestSnapshot): Pr
     const candidate = await requestGenerativeCandidate(snapshot);
     const state = useEditorStore.getState();
     if (state.generativeState.snapshot?.requestId !== snapshot.requestId) return false;
-    const mask: MaskAsset = { id: crypto.randomUUID(), width: snapshot.effectiveMask.width, height: snapshot.effectiveMask.height, data: new Uint8ClampedArray(snapshot.effectiveMask.data) };
+    const mask: MaskAsset = { id: crypto.randomUUID(), width: snapshot.providerMask.width, height: snapshot.providerMask.height, data: new Uint8ClampedArray(snapshot.providerMask.data) };
     useEditorStore.setState({
       preview: {
         id: crypto.randomUUID(), inputVersionId: snapshot.inputVersion.id, selectionId: snapshot.selectionId,
@@ -323,6 +329,8 @@ async function executeGenerativeRequest(snapshot: GenerativeRequestSnapshot): Pr
           prompt: snapshot.prompt,
           providerRequestId: candidate.providerRequestId,
           diagnosticRequestId: candidate.diagnosticRequestId,
+          boundaryPolicy: snapshot.boundaryPolicy,
+          candidateAnalysis: candidate.candidateAnalysis,
         },
         mask, pixels: candidate.pixels, dataUrl: candidate.dataUrl,
       },

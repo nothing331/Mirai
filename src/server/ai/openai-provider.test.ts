@@ -22,7 +22,7 @@ describe("OpenAIImageEditProvider", () => {
     const mask = await sharp({ create: { width: 2, height: 3, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 1 } } }).png().toBuffer();
     const providerOutput = await sharp({ create: { width: 8, height: 8, channels: 4, background: "red" } }).png().toBuffer();
     mocks.edit.mockReturnValue({ withResponse: vi.fn().mockResolvedValue({ data: { created: 1, data: [{ b64_json: providerOutput.toString("base64") }] }, request_id: "openai-request-1" }) });
-    const result = await new OpenAIImageEditProvider("test-key", "gpt-image-2", "medium", 2).edit({ imagePng: input, maskPng: mask, width: 2, height: 3, operation: "remove", prompt: "" });
+    const result = await new OpenAIImageEditProvider("test-key", "gpt-image-2", "medium", 2).edit({ imagePng: input, maskPng: mask, width: 2, height: 3, operation: "remove", boundaryPolicy: "review", prompt: "" });
     expect(mocks.edit).toHaveBeenCalledWith(expect.objectContaining({ model: "gpt-image-2", size: "auto", quality: "medium", output_format: "png" }));
     expect(mocks.edit.mock.calls[0][0]).not.toHaveProperty("input_fidelity");
     const providerInput = mocks.edit.mock.calls[0][0].image as Uint8Array;
@@ -35,7 +35,7 @@ describe("OpenAIImageEditProvider", () => {
     const input = await sharp({ create: { width: 2, height: 2, channels: 4, background: "blue" } }).png().toBuffer();
     const mask = await sharp({ create: { width: 2, height: 2, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 1 } } }).png().toBuffer();
     mocks.edit.mockReturnValue({ withResponse: vi.fn().mockResolvedValue({ data: { created: 1, data: [{ b64_json: input.toString("base64") }] }, request_id: "openai-request-2" }) });
-    await new OpenAIImageEditProvider("test-key", "gpt-image-1").edit({ imagePng: input, maskPng: mask, width: 2, height: 2, operation: "remove", prompt: "" });
+    await new OpenAIImageEditProvider("test-key", "gpt-image-1").edit({ imagePng: input, maskPng: mask, width: 2, height: 2, operation: "remove", boundaryPolicy: "review", prompt: "" });
     expect(mocks.edit.mock.calls[0][0]).toHaveProperty("input_fidelity", "high");
     expect(supportsInputFidelity("gpt-image-1-mini")).toBe(false);
     expect(supportsInputFidelity("gpt-image-2-2026-04-21")).toBe(false);
@@ -43,7 +43,7 @@ describe("OpenAIImageEditProvider", () => {
 
   it("turns a surface-graphic plan into contextual replacement constraints", () => {
     const selection = { leftPercent: 10, topPercent: 50, widthPercent: 35, heightPercent: 30, touchesImageEdge: true };
-    const replacement = buildEditInstruction("replace", "add an Indian flag", selection, {
+    const replacement = buildEditInstruction("replace", "add an Indian flag", selection, "review", {
       target: "rocket fuselage",
       representation: "surface_graphic",
       integration: "Follow the fuselage curvature and painted surface.",
@@ -52,11 +52,12 @@ describe("OpenAIImageEditProvider", () => {
       confidence: "high",
       rationale: "A flag on a rocket is normally a marking.",
     });
-    expect(replacement).toContain("placement envelope, not as a crop");
+    expect(replacement).toContain("approximate indication of intent, not as a clipping boundary");
     expect(replacement).toContain("graphic applied flush to the selected surface");
     expect(replacement).toContain("Do not add or depict: flagpole; cloth");
-    expect(replacement).toContain("scale and position the requested subject away from that edge");
-    const removal = buildEditInstruction("remove", "", selection);
+    expect(replacement).toContain("avoid accidental cropping");
+    const removal = buildEditInstruction("remove", "", selection, "protected");
     expect(removal).toContain("Do not leave a blur, smudge, repeated texture, halo, outline, patch, or ghost");
+    expect(removal).toContain("strict edit boundary");
   });
 });

@@ -9,6 +9,7 @@ import { Slider } from "@/components/ui/slider";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { DiagnosticsDrawer } from "@/features/diagnostics/DiagnosticsDrawer";
 import { cn } from "@/lib/utils";
+import type { CandidateAnalysis, EditBoundaryPolicy } from "@/shared/edit-boundary";
 import { decodeImage, exportVersion } from "./image-data";
 import { maskHasSelection } from "./mask";
 import { listSavedProjects, openSavedProject, saveEditorProject, type SavedProjectSummary } from "./project-client";
@@ -195,6 +196,21 @@ export function EditorWorkspace() {
                 <p className="border-l-2 border-accent pl-2 text-xs leading-relaxed text-muted">Draw loosely around an object or area. The contour is cleaned conservatively when you release the pointer.</p>
               )}
 
+              {state.editType !== "recolor" && (
+                <label className="grid gap-1.5 text-xs">
+                  <span>AI edit behavior</span>
+                  <select
+                    aria-label="AI edit behavior"
+                    className="h-10 border border-ink bg-paper px-2 text-xs"
+                    value={state.boundaryPolicy}
+                    onChange={(event) => state.setBoundaryPolicy(event.target.value as EditBoundaryPolicy)}
+                  >
+                    <option value="review">Let AI blend naturally</option>
+                    <option value="protected">Protect outside selection</option>
+                  </select>
+                </label>
+              )}
+
               {state.selectionDiagnostics && (
                 <div className="grid gap-1 border border-line bg-[#e8e5dc] p-2.5 font-mono text-[9px] uppercase tracking-[.08em] text-muted" data-testid="selection-diagnostics">
                   <div className="flex items-center justify-between"><span>Selection cleanup</span><strong className="text-ink">{state.selectionDiagnostics.rawPointCount} → {state.selectionDiagnostics.cleanedPointCount} points</strong></div>
@@ -287,7 +303,7 @@ export function EditorWorkspace() {
                 </div>
               )}
 
-              <p className="text-[11px] leading-relaxed text-muted">Add / replace treats the selection as a placement envelope and keeps the full subject inside it. Remove expands the effective boundary slightly for a natural reconstruction blend. Pixels outside that controlled boundary remain exact.</p>
+              <p className="text-[11px] leading-relaxed text-muted">{state.boundaryPolicy === "review" ? "The selection is an approximate focus hint. Mirai preserves the complete AI proposal and highlights changes beyond the selection for review." : "The selection is a strict boundary. Mirai restores source pixels outside the protected mask, which can clip generated content that crosses it."}</p>
               <Button variant="quiet" onClick={state.reset}><RotateCcw className="size-3.5" />Reset to original</Button>
               <div className="grid grid-cols-2 gap-2">
                 <Button data-testid="undo" variant="quiet" disabled={!state.canUndo()} onClick={state.undo}><Undo2 className="size-3.5" />Undo</Button>
@@ -308,7 +324,15 @@ export function EditorWorkspace() {
           </div>
           <div className="relative min-h-0 overflow-hidden border border-[#343430] bg-[#151513] shadow-[0_1px_0_rgba(255,255,255,.35)]">
             {state.preview && comparisonVersion && currentVersion ? (
-              <PreviewComparison baseLabel={compareWith === "previous" ? "Previous" : "Original"} originalUrl={comparisonVersion.dataUrl} previewUrl={state.preview.dataUrl} onAccept={state.acceptPreview} onDiscard={state.discardPreview} />
+              <PreviewComparison
+                baseLabel={compareWith === "previous" ? "Previous" : "Original"}
+                originalUrl={comparisonVersion.dataUrl}
+                previewUrl={state.preview.dataUrl}
+                boundaryPolicy={state.preview.method === "generative" ? state.preview.parameters.boundaryPolicy : null}
+                candidateAnalysis={state.preview.method === "generative" ? state.preview.parameters.candidateAnalysis : null}
+                onAccept={state.acceptPreview}
+                onDiscard={state.discardPreview}
+              />
             ) : currentVersion && state.selectionMask ? <EditorCanvas version={currentVersion} mask={state.selectionMask} color={state.color} viewResetKey={state.viewResetKey} onPreview={handleSelectionPreview} /> : (
               <label className="group absolute inset-0 flex cursor-pointer flex-col items-center justify-center gap-2 text-[#d4d1c8]">
                 <span className="mb-2 grid size-14 place-items-center rounded-full border border-[#77746c] text-3xl transition group-hover:rotate-90 group-hover:bg-acid group-hover:text-ink">+</span>
@@ -337,9 +361,23 @@ function IdChip({ label, value }: { label: string; value: string }) {
 }
 
 /** Shows the immutable original and unaccepted candidate before history advances. */
-function PreviewComparison({ baseLabel, originalUrl, previewUrl, onAccept, onDiscard }: { baseLabel: string; originalUrl: string; previewUrl: string; onAccept: () => boolean; onDiscard: () => void }) {
+function PreviewComparison({ baseLabel, originalUrl, previewUrl, boundaryPolicy, candidateAnalysis, onAccept, onDiscard }: {
+  baseLabel: string;
+  originalUrl: string;
+  previewUrl: string;
+  boundaryPolicy: EditBoundaryPolicy | null;
+  candidateAnalysis: CandidateAnalysis | null;
+  onAccept: () => boolean;
+  onDiscard: () => void;
+}) {
   return (
-    <div className="absolute inset-0 grid grid-rows-[1fr_auto] bg-[#151513] p-3" data-testid="preview-comparison">
+    <div className="absolute inset-0 grid grid-rows-[auto_1fr_auto] bg-[#151513] p-3" data-testid="preview-comparison">
+      {boundaryPolicy && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border border-white/20 px-3 py-2 font-mono text-[9px] uppercase tracking-wider text-white">
+          <span>{boundaryPolicy === "review" ? "Complete AI proposal" : "Protected-mask composite"}</span>
+          {candidateAnalysis && <span className={candidateAnalysis.changedOutsideSelectionPixels > 0 ? "text-[#ffb5a7]" : "text-acid"}>{candidateAnalysis.changedOutsideSelectionPixels > 0 ? `${Math.round(candidateAnalysis.changedOutsideSelectionRatio * 1000) / 10}% outside-focus pixels changed` : "Changes stayed inside focus"}</span>}
+        </div>
+      )}
       <div className="grid min-h-0 grid-cols-2 gap-3">
         <figure className="grid min-h-0 grid-rows-[auto_1fr] border border-white/20">
           <figcaption className="border-b border-white/20 px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-white">{baseLabel}</figcaption>

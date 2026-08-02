@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createGenerativeEffectiveMask, createMask, deserializeMask, fillPolygonMask, getMaskBounds, paintMask, serializeMask } from "./mask";
+import { createGenerativeProviderMask, createMask, deserializeMask, fillPolygonMask, getMaskBounds, paintMask, serializeMask } from "./mask";
 
 describe("processing masks", () => {
   it("always uses source dimensions", () => {
@@ -11,8 +11,8 @@ describe("processing masks", () => {
   it("expands and feathers removal masks while leaving replacement masks unchanged", () => {
     const mask = createMask(21, 21);
     mask.data[10 * 21 + 10] = 255;
-    const removal = createGenerativeEffectiveMask(mask, "remove");
-    const replacement = createGenerativeEffectiveMask(mask, "replace");
+    const removal = createGenerativeProviderMask(mask, "remove");
+    const replacement = createGenerativeProviderMask(mask, "replace");
     expect(removal.width).toBe(mask.width);
     expect(removal.data[10 * 21 + 12]).toBe(255);
     expect(removal.data.some((alpha) => alpha > 0 && alpha < 255)).toBe(true);

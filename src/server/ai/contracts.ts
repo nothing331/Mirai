@@ -1,5 +1,6 @@
 import type { ImageEditDiagnosticSink } from "../../shared/request-diagnostics";
 import type { EditPlan } from "../../shared/edit-plan";
+import type { EditBoundaryPolicy } from "../../shared/edit-boundary";
 
 export type GenerativeOperation = "remove" | "replace" | "restyle";
 export type ProviderScenario = "success" | "slow" | "retryable-error" | "fatal-error";
@@ -11,6 +12,7 @@ export interface ImageEditRequest {
   width: number;
   height: number;
   operation: GenerativeOperation;
+  boundaryPolicy: EditBoundaryPolicy;
   prompt: string;
   plan?: EditPlan;
   scenario?: ProviderScenario;

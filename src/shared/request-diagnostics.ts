@@ -1,4 +1,5 @@
 import type { EditPlan } from "./edit-plan";
+import type { CandidateAnalysis, EditBoundaryPolicy } from "./edit-boundary";
 
 export const diagnosticArtifactNames = [
   "source-input.png",
@@ -12,6 +13,8 @@ export const diagnosticArtifactNames = [
   "provider-mask.png",
   "provider-candidate-raw.png",
   "candidate-normalized.png",
+  "change-map.png",
+  "candidate-analysis.json",
   "final-preview.png",
   "provider-response.json",
 ] as const;
@@ -62,13 +65,15 @@ export interface RequestDiagnosticProviderCall {
 }
 
 export interface RequestDiagnosticManifest {
-  schemaVersion: 2;
+  schemaVersion: 3;
   projectId: string;
   requestId: string;
   retryOfRequestId: string | null;
   providerRequestId: string | null;
   provider: "fake" | "openai";
   operation: "remove" | "replace" | "restyle" | null;
+  boundaryPolicy: EditBoundaryPolicy;
+  previewSource: "full-candidate" | "protected-composite" | null;
   status: RequestDiagnosticStatus;
   pinned: boolean;
   startedAt: string;
@@ -78,6 +83,7 @@ export interface RequestDiagnosticManifest {
   userPrompt: string;
   plannerInstruction: string | null;
   editPlan: EditPlan | null;
+  candidateAnalysis: CandidateAnalysis | null;
   providerInstruction: string | null;
   sourceDimensions: { width: number; height: number } | null;
   providerDimensions: { width: number; height: number } | null;
@@ -98,7 +104,7 @@ export type RequestDiagnosticSummary = Pick<
 export interface ImageEditDiagnosticSink {
   event(stage: string, message: string, details?: Record<string, string | number | boolean | null>): Promise<void>;
   artifact(name: DiagnosticArtifactName, bytes: Uint8Array, mediaType: RequestDiagnosticArtifact["mediaType"]): Promise<void>;
-  metadata(values: Partial<Pick<RequestDiagnosticManifest, "providerRequestId" | "plannerInstruction" | "editPlan" | "providerInstruction" | "providerDimensions" | "configuration">>): Promise<void>;
+  metadata(values: Partial<Pick<RequestDiagnosticManifest, "providerRequestId" | "plannerInstruction" | "editPlan" | "candidateAnalysis" | "providerInstruction" | "providerDimensions" | "previewSource" | "configuration">>): Promise<void>;
   beginProviderCall(stage: ProviderCallStage, provider: RequestDiagnosticProviderCall["provider"], model: string): Promise<void>;
   completeProviderCall(stage: ProviderCallStage, providerRequestId: string | null, usage?: RequestDiagnosticProviderCall["usage"]): Promise<void>;
   failProviderCall(stage: ProviderCallStage, error: RequestDiagnosticError, retryable: boolean, providerRequestId?: string | null): Promise<void>;

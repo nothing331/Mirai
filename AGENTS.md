@@ -8,11 +8,11 @@ This repository is an editable AI image editor. The v0.1 workflow is:
 Upload → select → edit → compare → undo or accept → export
 ```
 
-The application must preserve what the user did not select and represent accepted changes as reversible operations and immutable image versions.
+For generative edits, the selection is an approximate focus hint by default; the complete provider proposal is shown for review. Exact preservation outside the selection is an explicit protected mode. Every accepted change remains a reversible operation and immutable image version.
 
 ## Current state
 
-The repository contains a browser-only Next.js editor with image upload, pan and zoom, source-space brush strokes, erasing, deterministic recoloring, and in-memory accepted operations. Generative editing, durable history, persistence, and export are not implemented yet. Confirm current behavior in source code and tests rather than relying only on this summary.
+The repository contains a browser-only Next.js editor with image upload, pan and zoom, source-space selections, deterministic and generative edits, comparison, linear immutable history, local persistence, export, context-aware Replace planning, and reproducible request diagnostics. Confirm current behavior in source code and tests rather than relying only on this summary.
 
 Use the smallest relevant source for the task:
 
@@ -44,8 +44,9 @@ This is a learning project as well as a product. Work as a collaborative technic
 ## Non-negotiable rules
 
 - Preserve the original image asset; never overwrite it.
-- Store processing masks in source-image coordinates and dimensions.
-- Preserve exact input pixels outside the effective edit mask.
+- Store selection hints and protected processing masks in source-image coordinates and dimensions.
+- Preserve the complete normalized provider candidate in generative review mode; diagnostics may analyze it but must not alter it.
+- Preserve exact input pixels outside the effective edit mask in protected mode and deterministic local operations.
 - Route every accepted edit through the shared edit pipeline.
 - Represent every accepted change as an `EditOperation` and immutable image version.
 - Prefer deterministic local processing when an edit does not require invented pixels.
@@ -68,7 +69,8 @@ This is a learning project as well as a product. Work as a collaborative technic
 
 - Display coordinates convert correctly to source-image coordinates.
 - Processing masks match their input image dimensions.
-- Pixels outside the effective mask remain unchanged.
+- Review-mode generative previews retain candidate changes outside the approximate selection.
+- Protected-mode and deterministic edits preserve pixels outside their effective masks.
 - Failed or discarded edits do not advance history.
 - Accepting one edit creates exactly one operation and one version.
 - Undo and redo select the correct immutable versions.

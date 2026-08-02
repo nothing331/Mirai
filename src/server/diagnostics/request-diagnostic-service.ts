@@ -24,13 +24,15 @@ export class RequestDiagnosticSession implements ImageEditDiagnosticSink {
     const bundlePath = repository.bundlePath(input.projectId, input.requestId);
     const now = new Date().toISOString();
     const manifest: RequestDiagnosticManifest = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       projectId: input.projectId,
       requestId: input.requestId,
       retryOfRequestId: input.retryOfRequestId,
       providerRequestId: null,
       provider: input.provider,
       operation: null,
+      boundaryPolicy: "review",
+      previewSource: null,
       status: "processing",
       pinned: false,
       startedAt: now,
@@ -40,6 +42,7 @@ export class RequestDiagnosticSession implements ImageEditDiagnosticSink {
       userPrompt: "",
       plannerInstruction: null,
       editPlan: null,
+      candidateAnalysis: null,
       providerInstruction: null,
       sourceDimensions: null,
       providerDimensions: null,
@@ -65,13 +68,15 @@ export class RequestDiagnosticSession implements ImageEditDiagnosticSink {
     await this.safely(`write ${name}`, () => this.repository.writeArtifact(this.requestId, name, bytes, mediaType));
   }
 
-  async metadata(values: Partial<Pick<RequestDiagnosticManifest, "providerRequestId" | "plannerInstruction" | "editPlan" | "providerInstruction" | "providerDimensions" | "configuration">>): Promise<void> {
+  async metadata(values: Partial<Pick<RequestDiagnosticManifest, "providerRequestId" | "plannerInstruction" | "editPlan" | "candidateAnalysis" | "providerInstruction" | "providerDimensions" | "previewSource" | "configuration">>): Promise<void> {
     await this.safely("update metadata", () => this.repository.mutate(this.requestId, (manifest) => {
       if (values.providerRequestId !== undefined) manifest.providerRequestId = values.providerRequestId;
       if (values.plannerInstruction !== undefined) manifest.plannerInstruction = values.plannerInstruction;
       if (values.editPlan !== undefined) manifest.editPlan = values.editPlan;
+      if (values.candidateAnalysis !== undefined) manifest.candidateAnalysis = values.candidateAnalysis;
       if (values.providerInstruction !== undefined) manifest.providerInstruction = values.providerInstruction;
       if (values.providerDimensions !== undefined) manifest.providerDimensions = values.providerDimensions;
+      if (values.previewSource !== undefined) manifest.previewSource = values.previewSource;
       if (values.configuration !== undefined) manifest.configuration = { ...manifest.configuration, ...values.configuration };
     }));
   }
@@ -125,7 +130,7 @@ export class RequestDiagnosticSession implements ImageEditDiagnosticSink {
     }));
   }
 
-  async requestMetadata(values: Pick<RequestDiagnosticManifest, "operation" | "userPrompt" | "sourceDimensions">): Promise<void> {
+  async requestMetadata(values: Pick<RequestDiagnosticManifest, "operation" | "boundaryPolicy" | "userPrompt" | "sourceDimensions">): Promise<void> {
     await this.safely("update request metadata", () => this.repository.mutate(this.requestId, (manifest) => {
       Object.assign(manifest, values);
     }));

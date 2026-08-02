@@ -1,5 +1,6 @@
 import { compositeCandidate } from "./composite";
 import { decodeImage, pixelsToDataUrl } from "./image-data";
+import type { CandidateAnalysis } from "@/shared/edit-boundary";
 import type { GenerativeRequestSnapshot, ProcessingMask } from "./types";
 
 interface GenerativeCandidate {
@@ -7,6 +8,7 @@ interface GenerativeCandidate {
   dataUrl: string;
   providerRequestId: string;
   diagnosticRequestId: string;
+  candidateAnalysis: CandidateAnalysis;
 }
 
 export class GenerativeRequestError extends Error {
@@ -21,13 +23,14 @@ export class GenerativeRequestError extends Error {
   }
 }
 
-/** Calls the server provider and authoritatively restores every unselected input byte. */
+/** Calls the server provider and preserves its complete proposal unless protected mode was explicitly selected. */
 export async function requestGenerativeCandidate(snapshot: GenerativeRequestSnapshot): Promise<GenerativeCandidate> {
   const form = new FormData();
   const sourcePng = pixelsToDataUrl(snapshot.inputVersion.pixels, snapshot.inputVersion.width, snapshot.inputVersion.height);
   form.set("image", new File([await (await fetch(sourcePng)).blob()], "image.png", { type: "image/png" }));
   form.set("selectionMask", new File([maskToPngBlob(snapshot.selectionMask)], "selection-mask.png", { type: "image/png" }));
-  form.set("mask", new File([maskToPngBlob(snapshot.effectiveMask)], "effective-mask.png", { type: "image/png" }));
+  form.set("mask", new File([maskToPngBlob(snapshot.providerMask)], "provider-focus-mask.png", { type: "image/png" }));
+  form.set("boundaryPolicy", snapshot.boundaryPolicy);
   form.set("operation", snapshot.operation);
   form.set("prompt", snapshot.prompt);
   form.set("scenario", snapshot.scenario);
@@ -45,9 +48,10 @@ export async function requestGenerativeCandidate(snapshot: GenerativeRequestSnap
     error?: string;
     retryable?: boolean;
     imageGenerationAttempted?: boolean;
+    candidateAnalysis?: CandidateAnalysis;
   };
   const responseRequestId = payload.requestId ?? response.headers.get("x-request-id") ?? snapshot.requestId;
-  if (!response.ok || !payload.candidateBase64 || !payload.providerRequestId) {
+  if (!response.ok || !payload.candidateBase64 || !payload.providerRequestId || !payload.candidateAnalysis) {
     if (payload.imageGenerationAttempted === false) {
       window.dispatchEvent(new CustomEvent("image-generation-skipped", { detail: { requestId: responseRequestId } }));
     }
@@ -63,10 +67,22 @@ export async function requestGenerativeCandidate(snapshot: GenerativeRequestSnap
   if (candidate.width !== snapshot.inputVersion.width || candidate.height !== snapshot.inputVersion.height) {
     throw new GenerativeRequestError("The provider candidate dimensions do not match the input image.", false, responseRequestId);
   }
-  const pixels = compositeCandidate(snapshot.inputVersion.pixels, candidate.pixels, snapshot.effectiveMask);
+  const pixels = prepareGenerativePreviewPixels(snapshot.inputVersion.pixels, candidate.pixels, snapshot.providerMask, snapshot.boundaryPolicy);
   const dataUrl = pixelsToDataUrl(pixels, candidate.width, candidate.height);
-  await uploadFinalPreview(snapshot.projectId, responseRequestId, dataUrl);
-  return { pixels, dataUrl, providerRequestId: payload.providerRequestId, diagnosticRequestId: responseRequestId };
+  await uploadFinalPreview(snapshot.projectId, responseRequestId, dataUrl, snapshot.boundaryPolicy);
+  return { pixels, dataUrl, providerRequestId: payload.providerRequestId, diagnosticRequestId: responseRequestId, candidateAnalysis: payload.candidateAnalysis };
+}
+
+/** Makes provider pixels authoritative in review mode and applies exact restoration only in protected mode. */
+export function prepareGenerativePreviewPixels(
+  input: Uint8ClampedArray,
+  candidate: Uint8ClampedArray,
+  mask: ProcessingMask,
+  boundaryPolicy: GenerativeRequestSnapshot["boundaryPolicy"],
+): Uint8ClampedArray {
+  return boundaryPolicy === "protected"
+    ? compositeCandidate(input, candidate, mask)
+    : new Uint8ClampedArray(candidate);
 }
 
 /** Encodes positive selection alpha as a full-resolution PNG mask for transport. */
@@ -90,10 +106,11 @@ function maskToPngBlob(mask: ProcessingMask): Blob {
   return new Blob([Uint8Array.from(binary, (character) => character.charCodeAt(0))], { type: "image/png" });
 }
 
-async function uploadFinalPreview(projectId: string, requestId: string, dataUrl: string): Promise<void> {
+async function uploadFinalPreview(projectId: string, requestId: string, dataUrl: string, boundaryPolicy: GenerativeRequestSnapshot["boundaryPolicy"]): Promise<void> {
   try {
     const form = new FormData();
     form.set("finalPreview", new File([await (await fetch(dataUrl)).blob()], "final-preview.png", { type: "image/png" }));
+    form.set("boundaryPolicy", boundaryPolicy);
     const response = await fetch(`/api/request-logs/${encodeURIComponent(requestId)}/client-artifacts`, {
       method: "POST",
       headers: { "x-project-id": projectId },

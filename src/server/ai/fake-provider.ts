@@ -15,7 +15,7 @@ export class FakeImageEditProvider implements ImageEditProvider {
     await diagnostics?.metadata({
       providerInstruction: request.prompt,
       providerDimensions: { width: request.width, height: request.height },
-      configuration: { scenario: request.scenario ?? "success" },
+      configuration: { scenario: request.scenario ?? "success", boundaryPolicy: request.boundaryPolicy },
     });
     if (request.scenario === "slow") await new Promise((resolve) => setTimeout(resolve, 700));
     if (request.scenario === "retryable-error") {

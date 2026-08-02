@@ -29,6 +29,7 @@ describe("request diagnostic repository", () => {
     }, storage);
     await session.requestMetadata({
       operation: "replace",
+      boundaryPolicy: "review",
       userPrompt: "add a copper sphere",
       sourceDimensions: { width: 20, height: 10 },
     });
@@ -63,7 +64,7 @@ describe("request diagnostic repository", () => {
     expect(serialized).not.toContain("OPENAI_API_KEY");
   });
 
-  it("normalizes schema-v1 manifests without inventing provider calls", () => {
+  it("normalizes legacy manifests without inventing provider calls", () => {
     const manifest = normalizeDiagnosticManifest({
       schemaVersion: 1,
       projectId: "project-old",
@@ -72,9 +73,12 @@ describe("request diagnostic repository", () => {
       artifacts: {},
     });
     expect(manifest).toMatchObject({
-      schemaVersion: 2,
+      schemaVersion: 3,
+      boundaryPolicy: "protected",
+      previewSource: null,
       plannerInstruction: null,
       editPlan: null,
+      candidateAnalysis: null,
       providerCalls: [],
     });
   });

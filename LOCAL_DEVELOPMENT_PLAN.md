@@ -32,13 +32,14 @@ The plan assumes approximately 1–2 hours per day. Complete and verify one mile
 | 2. Canvas foundation | Complete | Rendering, stable pan/zoom, reset view, coordinate conversion, and dimension-preserving browser export |
 | 3. Manual masking | Complete | Closed-contour filling with source-space brush and eraser refinement |
 | 4. Deterministic editing | Complete | Luminance-preserving recolor, controlled feathering, exact preservation, and preview comparison |
-| 5. Generative editing | Complete | Fake and optional OpenAI Remove/Restyle editing with retry, preview, and exact preservation |
+| 5. Generative editing | Complete | Fake and optional OpenAI Remove/Restyle editing with retry and preview |
 | 6. Version history | Complete | Accept, discard, linear undo/redo, branch truncation, and comparison |
 | 7. Persistence and export | Complete | SQLite project metadata, immutable local assets, reopening, and PNG/JPEG export |
 | 8. v0.1 validation | Complete | Invariant, provider, history, persistence, export, and browser workflow verification |
 | 9. Selection feedback improvements | Complete | Conservative lasso cleanup, mask diagnostics, and selection-anchored edit instructions |
 | 10. Reproducible request diagnostics | Complete | Correlated request IDs, persistent processing bundles, artifact comparison, retention, pinning, and agent handoff |
 | 11. Context-aware Replace planning | Complete | Multimodal structured planning, planner failure isolation, two-call diagnostics, and history correlation |
+| 12. Full-candidate review | Complete | Approximate focus semantics, full-candidate default, optional protected compositing, scope diagnosis, and change-map evidence |
 
 Update this table whenever a milestone begins or completes.
 
@@ -141,7 +142,7 @@ A user can select part of an image, recolor it locally, and confirm that unselec
 - support explicit Remove and Replace/Restyle operations
 - connect one real image-edit provider server-side
 - send the full current image, same-size mask, and focused prompt
-- composite the provider candidate through the same authoritative mask boundary
+- preserve the normalized provider candidate for review and retain optional protected compositing
 
 ### Deliverable
 
@@ -151,7 +152,8 @@ A user can preview a localized generative edit without committing it to history.
 
 - provider credentials never enter browser code
 - tests can run with the fake provider
-- provider changes outside the effective mask are discarded
+- review mode retains the complete provider proposal
+- protected mode discards provider changes outside the effective mask
 - failed calls leave the accepted project state unchanged
 - the user can accept, discard, or retry a preview
 
@@ -217,7 +219,8 @@ A user can close the application, reopen a project, continue editing, and export
 - brush and eraser selection is understandable
 - deterministic recoloring works
 - at least one generative edit works
-- pixels outside the selection remain preserved
+- review mode preserves the complete normalized AI proposal
+- protected mode preserves pixels outside the effective mask
 - preview, accept, discard, undo, redo, and compare work
 - projects reopen correctly
 - original-resolution export works
@@ -225,7 +228,7 @@ A user can close the application, reopen a project, continue editing, and export
 
 ## Next development sessions
 
-The v0.1 engineering milestones, context-aware Replace planner, and reproducible diagnostic workflow are complete. When an image result looks wrong, pin its request in the diagnostics drawer and use “Copy for coding agent” before changing the pipeline. Future work should begin from that evidence and the deferred scope in `PROJECT.md`, without weakening the accepted-version and exact-preservation invariants.
+The v0.1 engineering milestones, full-candidate review policy, context-aware Replace planner, and reproducible diagnostic workflow are complete. When an image result looks wrong, pin its request in the diagnostics drawer and use “Copy for coding agent” before changing the pipeline. Future work should begin from that evidence and preserve the distinction between approximate review selections and explicit protected boundaries.
 
 ## Plan maintenance
 

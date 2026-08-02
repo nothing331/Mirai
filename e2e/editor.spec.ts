@@ -106,6 +106,7 @@ test("fake provider supports generative success, retry, and failure states", asy
   await canvas.locator("canvas").first().click({ position: { x: imageX + 10, y: imageY + 10 } });
 
   await page.getByRole("radio", { name: "Remove" }).click();
+  await expect(page.getByLabel("AI edit behavior")).toHaveValue("review");
   await expect(page.getByText("Fake provider scenario")).toBeVisible();
   const scenario = page.getByLabel("Fake provider scenario");
   await scenario.selectOption("success");
@@ -117,8 +118,10 @@ test("fake provider supports generative success, retry, and failure states", asy
   await expect(diagnostics).toBeVisible();
   await expect(diagnostics.getByText("Visual chain of custody")).toBeVisible();
   await expect(diagnostics.getByText("01 / Source")).toBeVisible();
-  await expect(diagnostics.getByText("10 / Final preview")).toBeVisible();
-  await expect(diagnostics.getByText("Browser composited the normalized candidate through the effective mask.")).toBeVisible();
+  await expect(diagnostics.getByText("11 / Final preview")).toBeVisible();
+  await expect(diagnostics.getByText("10 / Change map")).toBeVisible();
+  await expect(diagnostics.getByText("Candidate scope diagnosis")).toBeVisible();
+  await expect(diagnostics.getByText("Browser preserved the complete normalized provider candidate.")).toBeVisible();
   await diagnostics.getByRole("button", { name: "Pin evidence" }).click();
   await expect(diagnostics.getByRole("button", { name: "Unpin" })).toBeVisible();
   await diagnostics.getByRole("button", { name: "Unpin" }).click();

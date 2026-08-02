@@ -18,14 +18,15 @@ const filters: Array<{ label: string; value: "all" | RequestDiagnosticStatus }> 
 const visualArtifacts: Array<{ name: DiagnosticArtifactName; label: string; note: string }> = [
   { name: "source-input.png", label: "01 / Source", note: "Exact image version entering the request" },
   { name: "selection-mask.png", label: "02 / Selection", note: "Mask drawn by the user" },
-  { name: "effective-mask.png", label: "03 / Effective mask", note: "Expanded and feathered processing boundary" },
+  { name: "effective-mask.png", label: "03 / Provider focus", note: "Mask sent as approximate focus; strict only in protected mode" },
   { name: "planner-context.png", label: "04 / Planner context", note: "Full scene with the selected region highlighted" },
   { name: "planner-selection-detail.png", label: "05 / Planner detail", note: "Close-up used to infer the selected surface" },
   { name: "provider-input.png", label: "06 / Provider input", note: "Resized image sent to the image editor" },
   { name: "provider-mask.png", label: "07 / Provider mask", note: "Provider-format transparency mask" },
   { name: "provider-candidate-raw.png", label: "08 / Raw candidate", note: "Unmodified image-editor response" },
   { name: "candidate-normalized.png", label: "09 / Normalized", note: "Candidate restored to source dimensions" },
-  { name: "final-preview.png", label: "10 / Final preview", note: "Candidate composited through the effective mask" },
+  { name: "change-map.png", label: "10 / Change map", note: "Material candidate differences measured without altering the result" },
+  { name: "final-preview.png", label: "11 / Final preview", note: "Complete candidate or protected composite according to the recorded policy" },
 ];
 
 interface DiagnosticsDrawerProps {
@@ -123,7 +124,8 @@ export function DiagnosticsDrawer({ projectId, focusRequestId, open, onClose }: 
     `Inspect the image-edit diagnostic for project ${manifest.projectId}, request ${manifest.requestId}.`,
     `Manifest: ${manifest.bundlePath}/manifest.json`,
     `Status: ${manifest.status}${manifest.error ? ` — ${manifest.error.message}` : ""}.`,
-    "Compare selection-mask.png with effective-mask.png, then provider-candidate-raw.png with candidate-normalized.png and final-preview.png to identify the first stage where the result becomes incorrect.",
+    `Boundary policy: ${manifest.boundaryPolicy}. Preview source: ${manifest.previewSource ?? "not recorded"}.`,
+    "Compare the provider candidate, normalized candidate, change map, and final preview to identify whether the provider, normalization, or application first introduced the problem.",
   ].join("\n") : "", [manifest]);
 
   if (!open) return null;
@@ -180,7 +182,7 @@ export function DiagnosticsDrawer({ projectId, focusRequestId, open, onClose }: 
                 <section className="grid gap-4 border border-ink bg-[#171714] p-4 text-white">
                   <div className="flex flex-wrap items-start justify-between gap-4">
                     <div>
-                      <div className="mb-2 flex items-center gap-2"><StatusBadge status={manifest.status} /><span className="font-mono text-[9px] uppercase tracking-widest text-[#aaa79e]">{manifest.provider} · {manifest.operation}</span></div>
+                      <div className="mb-2 flex items-center gap-2"><StatusBadge status={manifest.status} /><span className="font-mono text-[9px] uppercase tracking-widest text-[#aaa79e]">{manifest.provider} · {manifest.operation} · {manifest.boundaryPolicy}</span></div>
                       <h3 className="max-w-2xl text-lg font-bold leading-tight">{manifest.error?.message ?? "Request completed with a reproducible evidence bundle."}</h3>
                     </div>
                     <Button variant="outline" className="border-white text-white hover:shadow-[3px_3px_0_#d8f441]" onClick={() => void togglePinned()}>
@@ -243,6 +245,19 @@ export function DiagnosticsDrawer({ projectId, focusRequestId, open, onClose }: 
                   </div>
                 </section>
 
+                {manifest.candidateAnalysis && (
+                  <section>
+                    <SectionHeading index="B2" title="Candidate scope diagnosis" subtitle="Measured evidence only; this analysis never changes preview pixels." />
+                    <dl className="mt-3 grid grid-cols-2 border border-ink md:grid-cols-4">
+                      <Fact label="Classification" value={manifest.candidateAnalysis.classification} />
+                      <Fact label="Changed pixels" value={String(manifest.candidateAnalysis.changedPixels)} />
+                      <Fact label="Inside selection" value={`${Math.round(manifest.candidateAnalysis.changedInsideSelectionRatio * 1000) / 10}%`} />
+                      <Fact label="Outside selection" value={`${Math.round(manifest.candidateAnalysis.changedOutsideSelectionRatio * 1000) / 10}%`} />
+                    </dl>
+                    {manifest.candidateAnalysis.warnings.length > 0 && <p className="mt-3 border-l-4 border-[#d98b00] bg-[#fff0c7] p-3 text-xs text-[#6f4300]">{manifest.candidateAnalysis.warnings.join(" · ")}</p>}
+                  </section>
+                )}
+
                 <section>
                   <SectionHeading index="C" title="Processing timeline" subtitle={`${manifest.durationMs ?? "Live"}${typeof manifest.durationMs === "number" ? "ms total" : ""}`} />
                   <ol className="mt-3 border border-ink">
@@ -271,12 +286,15 @@ export function DiagnosticsDrawer({ projectId, focusRequestId, open, onClose }: 
                     <dl className="mt-3 grid grid-cols-2 border border-ink">
                       <Fact label="Source" value={manifest.sourceDimensions ? `${manifest.sourceDimensions.width} × ${manifest.sourceDimensions.height}` : "Unknown"} />
                       <Fact label="Provider" value={manifest.providerDimensions ? `${manifest.providerDimensions.width} × ${manifest.providerDimensions.height}` : "Unknown"} />
+                      <Fact label="Boundary policy" value={manifest.boundaryPolicy} />
+                      <Fact label="Preview source" value={manifest.previewSource ?? "Not prepared"} />
                       {Object.entries(manifest.configuration).map(([key, value]) => <Fact key={key} label={key} value={String(value)} />)}
                     </dl>
                     <div className="mt-3 flex flex-wrap gap-3">
                       {manifest.artifacts["planner-response.json"] && <a className="inline-flex border-b border-ink font-mono text-[10px] uppercase tracking-wider hover:bg-acid" href={diagnosticArtifactUrl(manifest.requestId, "planner-response.json")} target="_blank" rel="noreferrer">Open planner response ↗</a>}
                       {manifest.artifacts["edit-plan.json"] && <a className="inline-flex border-b border-ink font-mono text-[10px] uppercase tracking-wider hover:bg-acid" href={diagnosticArtifactUrl(manifest.requestId, "edit-plan.json")} target="_blank" rel="noreferrer">Open edit plan ↗</a>}
                       {manifest.artifacts["provider-response.json"] && <a className="inline-flex border-b border-ink font-mono text-[10px] uppercase tracking-wider hover:bg-acid" href={diagnosticArtifactUrl(manifest.requestId, "provider-response.json")} target="_blank" rel="noreferrer">Open image response ↗</a>}
+                      {manifest.artifacts["candidate-analysis.json"] && <a className="inline-flex border-b border-ink font-mono text-[10px] uppercase tracking-wider hover:bg-acid" href={diagnosticArtifactUrl(manifest.requestId, "candidate-analysis.json")} target="_blank" rel="noreferrer">Open candidate analysis ↗</a>}
                     </div>
                     {manifest.error?.stack && <details className="mt-4 border border-accent bg-[#fff0eb] p-3"><summary className="cursor-pointer font-mono text-[10px] uppercase tracking-wider text-[#8f1d10]">Server error stack</summary><pre className="mt-3 overflow-x-auto whitespace-pre-wrap text-[10px] leading-relaxed">{manifest.error.stack}</pre></details>}
                   </div>

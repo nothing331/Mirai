@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import sharp from "sharp";
 import { ImageProviderError } from "@/server/ai/contracts";
 import type { GenerativeOperation, ProviderScenario } from "@/server/ai/contracts";
+import { analyzeCandidate } from "@/server/ai/candidate-analysis";
 import { configuredPlannerModel, configuredProviderName, createEditIntentPlanner, createImageEditProvider, parsePositiveInteger } from "@/server/ai/provider-factory";
 import { startRequestDiagnostics } from "@/server/diagnostics/request-diagnostic-service";
 import type { RequestDiagnosticError } from "@/shared/request-diagnostics";
@@ -35,26 +36,30 @@ export async function POST(request: Request) {
     const form = await request.formData();
     const image = form.get("image");
     const selectionMask = form.get("selectionMask");
-    const effectiveMask = form.get("mask");
+    const providerFocusMask = form.get("mask");
     const operation = form.get("operation");
+    const boundaryPolicy = form.get("boundaryPolicy");
     const prompt = form.get("prompt");
     const scenario = form.get("scenario");
-    if (!(image instanceof File) || !(selectionMask instanceof File) || !(effectiveMask instanceof File)) {
-      throw new RequestValidationError("Image, selection mask, and effective mask files are required.");
+    if (!(image instanceof File) || !(selectionMask instanceof File) || !(providerFocusMask instanceof File)) {
+      throw new RequestValidationError("Image, selection mask, and provider focus mask files are required.");
     }
     if (operation !== "remove" && operation !== "replace" && operation !== "restyle") {
       throw new RequestValidationError("Choose Remove, Add / replace, or Restyle.");
+    }
+    if (boundaryPolicy !== "review" && boundaryPolicy !== "protected") {
+      throw new RequestValidationError("Choose review or protected AI edit behavior.");
     }
     if (typeof prompt !== "string") throw new RequestValidationError("Prompt is required.");
 
     await diagnostics?.event("parsed", "Parsed multipart image-edit request.", {
       sourceBytes: image.size,
       selectionMaskBytes: selectionMask.size,
-      effectiveMaskBytes: effectiveMask.size,
+      providerFocusMaskBytes: providerFocusMask.size,
     });
     const imagePng = new Uint8Array(await image.arrayBuffer());
     const selectionMaskPng = new Uint8Array(await selectionMask.arrayBuffer());
-    const maskPng = new Uint8Array(await effectiveMask.arrayBuffer());
+    const maskPng = new Uint8Array(await providerFocusMask.arrayBuffer());
     const [imageMetadata, selectionMetadata, maskMetadata] = await Promise.all([
       sharp(imagePng).metadata(),
       sharp(selectionMaskPng).metadata(),
@@ -66,11 +71,12 @@ export async function POST(request: Request) {
       || imageMetadata.width !== selectionMetadata.width || imageMetadata.height !== selectionMetadata.height
       || imageMetadata.width !== maskMetadata.width || imageMetadata.height !== maskMetadata.height
     ) {
-      throw new RequestValidationError("Image, selection mask, and effective mask must be same-size PNG files.");
+      throw new RequestValidationError("Image, selection mask, and provider focus mask must be same-size PNG files.");
     }
 
     await diagnostics?.requestMetadata({
       operation,
+      boundaryPolicy,
       userPrompt: prompt,
       sourceDimensions: { width: imageMetadata.width, height: imageMetadata.height },
     });
@@ -104,14 +110,43 @@ export async function POST(request: Request) {
       width: imageMetadata.width,
       height: imageMetadata.height,
       operation: operation as GenerativeOperation,
+      boundaryPolicy,
       prompt,
       plan,
       scenario: providerName === "fake" ? scenario as ProviderScenario : undefined,
     }, diagnostics ?? undefined);
+    let candidateAnalysis;
+    try {
+      const candidateDiagnostic = await analyzeCandidate({
+        sourcePng: imagePng,
+        candidatePng: result.candidatePng,
+        selectionMaskPng,
+        width: imageMetadata.width,
+        height: imageMetadata.height,
+      });
+      candidateAnalysis = candidateDiagnostic.analysis;
+      await diagnostics?.artifact("change-map.png", candidateDiagnostic.changeMapPng, "image/png");
+      await diagnostics?.event("candidate-analysis", "Measured candidate changes without altering provider pixels.", {
+        classification: candidateAnalysis.classification,
+        changedPixels: candidateAnalysis.changedPixels,
+        changedOutsideSelectionPixels: candidateAnalysis.changedOutsideSelectionPixels,
+      });
+    } catch (analysisError) {
+      candidateAnalysis = unavailableCandidateAnalysis();
+      await diagnostics?.event("candidate-analysis", "Candidate scope analysis was unavailable; the provider proposal was preserved unchanged.", {
+        error: analysisError instanceof Error ? analysisError.message : "Unknown analysis error",
+      });
+    }
+    await diagnostics?.artifact("candidate-analysis.json", new TextEncoder().encode(JSON.stringify(candidateAnalysis, null, 2)), "application/json");
+    await diagnostics?.metadata({
+      candidateAnalysis,
+      previewSource: boundaryPolicy === "protected" ? "protected-composite" : "full-candidate",
+    });
     await diagnostics?.succeed(result.providerRequestId);
     return diagnosticResponse({
       candidateBase64: Buffer.from(result.candidatePng).toString("base64"),
       providerRequestId: result.providerRequestId,
+      candidateAnalysis,
       imageGenerationAttempted,
       projectId,
       requestId,
@@ -131,6 +166,21 @@ export async function POST(request: Request) {
       requestId,
     }, status, requestId);
   }
+}
+
+function unavailableCandidateAnalysis() {
+  return {
+    differenceThreshold: 12,
+    changedPixels: 0,
+    changedPixelRatio: 0,
+    changedInsideSelectionPixels: 0,
+    changedInsideSelectionRatio: 0,
+    changedOutsideSelectionPixels: 0,
+    changedOutsideSelectionRatio: 0,
+    changedBoundaryPixels: 0,
+    classification: "analysis-unavailable" as const,
+    warnings: ["candidate-analysis-failed" as const],
+  };
 }
 
 class RequestValidationError extends Error {

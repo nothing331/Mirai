@@ -18,6 +18,18 @@ const original: ImageVersion = {
   dataUrl: "data:image/png;base64,original",
 };
 const firstPixelContour: SourcePoint[] = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }];
+const candidateAnalysis = {
+  differenceThreshold: 12,
+  changedPixels: 1,
+  changedPixelRatio: 1 / 3,
+  changedInsideSelectionPixels: 1,
+  changedInsideSelectionRatio: 1,
+  changedOutsideSelectionPixels: 0,
+  changedOutsideSelectionRatio: 0,
+  changedBoundaryPixels: 1,
+  classification: "candidate-within-selection" as const,
+  warnings: ["changes-touch-selection-boundary" as const],
+};
 
 describe("filled selection preview and acceptance", () => {
   beforeEach(() => {
@@ -30,7 +42,7 @@ describe("filled selection preview and acceptance", () => {
   it("generative processing and preview do not advance history", async () => {
     useEditorStore.getState().fillSelection(firstPixelContour);
     useEditorStore.getState().setEditType("remove");
-    vi.mocked(requestGenerativeCandidate).mockResolvedValue({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:image/png;base64,candidate", providerRequestId: "fake-1", diagnosticRequestId: "request-1" });
+    vi.mocked(requestGenerativeCandidate).mockResolvedValue({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:image/png;base64,candidate", providerRequestId: "fake-1", diagnosticRequestId: "request-1", candidateAnalysis });
     expect(await useEditorStore.getState().requestGenerativePreview()).toBe(true);
     const state = useEditorStore.getState();
     expect(state.generativeState.status).toBe("preview");
@@ -43,13 +55,13 @@ describe("filled selection preview and acceptance", () => {
     useEditorStore.getState().fillSelection(firstPixelContour);
     useEditorStore.getState().setEditType("restyle");
     useEditorStore.getState().setPrompt("brushed copper");
-    vi.mocked(requestGenerativeCandidate).mockResolvedValue({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:image/png;base64,candidate", providerRequestId: "fake-2", diagnosticRequestId: "request-2" });
+    vi.mocked(requestGenerativeCandidate).mockResolvedValue({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:image/png;base64,candidate", providerRequestId: "fake-2", diagnosticRequestId: "request-2", candidateAnalysis });
     await useEditorStore.getState().requestGenerativePreview();
     useEditorStore.getState().acceptPreview();
     const state = useEditorStore.getState();
     expect(state.versions).toHaveLength(2);
     expect(state.operations).toHaveLength(1);
-    expect(state.operations[0]).toMatchObject({ type: "restyle", method: "generative", parameters: { prompt: "brushed copper", providerRequestId: "fake-2", diagnosticRequestId: "request-2" } });
+    expect(state.operations[0]).toMatchObject({ type: "restyle", method: "generative", parameters: { prompt: "brushed copper", providerRequestId: "fake-2", diagnosticRequestId: "request-2", boundaryPolicy: "review", candidateAnalysis } });
   });
 
   it("retries an immutable snapshot after a retryable failure", async () => {
@@ -57,28 +69,29 @@ describe("filled selection preview and acceptance", () => {
     useEditorStore.getState().setEditType("remove");
     vi.mocked(requestGenerativeCandidate)
       .mockRejectedValueOnce(new GenerativeRequestError("temporary", true))
-      .mockResolvedValueOnce({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:image/png;base64,candidate", providerRequestId: "fake-3", diagnosticRequestId: "request-3" });
+      .mockResolvedValueOnce({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:image/png;base64,candidate", providerRequestId: "fake-3", diagnosticRequestId: "request-3", candidateAnalysis });
     await useEditorStore.getState().requestGenerativePreview();
     const failedSnapshot = useEditorStore.getState().generativeState.snapshot!;
     expect(useEditorStore.getState().generativeState).toMatchObject({ status: "failed", retryable: true });
     await useEditorStore.getState().retryGenerativePreview();
     const retriedSnapshot = vi.mocked(requestGenerativeCandidate).mock.calls[1][0];
     expect(retriedSnapshot.inputVersion.pixels).toEqual(failedSnapshot.inputVersion.pixels);
-    expect(retriedSnapshot.effectiveMask.data).toEqual(failedSnapshot.effectiveMask.data);
+    expect(retriedSnapshot.providerMask.data).toEqual(failedSnapshot.providerMask.data);
+    expect(retriedSnapshot.boundaryPolicy).toBe("review");
     expect(useEditorStore.getState().generativeState.status).toBe("preview");
   });
 
   it("ignores a response superseded by a newer request", async () => {
     useEditorStore.getState().fillSelection(firstPixelContour);
     useEditorStore.getState().setEditType("remove");
-    const resolvers: Array<(value: { pixels: Uint8ClampedArray; dataUrl: string; providerRequestId: string; diagnosticRequestId: string }) => void> = [];
+    const resolvers: Array<(value: { pixels: Uint8ClampedArray; dataUrl: string; providerRequestId: string; diagnosticRequestId: string; candidateAnalysis: typeof candidateAnalysis }) => void> = [];
     vi.mocked(requestGenerativeCandidate).mockImplementation(() => new Promise((resolve) => resolvers.push(resolve)));
     const older = useEditorStore.getState().requestGenerativePreview();
     const newer = useEditorStore.getState().requestGenerativePreview();
-    resolvers[0]({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:old", providerRequestId: "old", diagnosticRequestId: "request-old" });
+    resolvers[0]({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:old", providerRequestId: "old", diagnosticRequestId: "request-old", candidateAnalysis });
     expect(await older).toBe(false);
     expect(useEditorStore.getState().preview).toBeNull();
-    resolvers[1]({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:new", providerRequestId: "new", diagnosticRequestId: "request-new" });
+    resolvers[1]({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:new", providerRequestId: "new", diagnosticRequestId: "request-new", candidateAnalysis });
     expect(await newer).toBe(true);
     const preview = useEditorStore.getState().preview;
     expect(preview?.method === "generative" ? preview.parameters.providerRequestId : null).toBe("new");

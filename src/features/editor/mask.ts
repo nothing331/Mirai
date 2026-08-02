@@ -138,7 +138,7 @@ export function getMaskBounds(mask: ProcessingMask, alphaThreshold = 16): MaskBo
 }
 
 /** Gives removal enough surrounding pixels to reconstruct and softly blend the exposed background. */
-export function createGenerativeEffectiveMask(mask: ProcessingMask, operation: "remove" | "replace" | "restyle"): ProcessingMask {
+export function createGenerativeProviderMask(mask: ProcessingMask, operation: "remove" | "replace" | "restyle"): ProcessingMask {
   if (operation !== "remove") return { ...mask, data: new Uint8ClampedArray(mask.data) };
   const expansion = Math.min(18, Math.max(3, Math.round(Math.max(mask.width, mask.height) * 0.004)));
   const feather = Math.max(2, Math.round(expansion * 0.65));

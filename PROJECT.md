@@ -2,17 +2,17 @@
 
 ## Product thesis
 
-Most AI image tools replace an image with another generated result. This product treats AI as an editor: the user selects a region, makes a localized change, preserves the rest of the image, and can undo or compare every accepted change.
+Most AI image tools replace an image with another generated result. This product treats AI as an editor: the user indicates where an edit should focus, reviews the model's complete proposal, and can undo or compare every accepted change. Users can opt into an exact protected boundary when preservation is more important than natural generative blending.
 
 The v0.1 promise is:
 
-> Upload an image, select a region, edit only that selection, preserve everything else, and export the result.
+> Upload an image, indicate the intended focus, review a complete AI edit, accept or undo it, and export the chosen version.
 
 The project initially targets normal users rather than professional design workflows.
 
 ## Current state
 
-The editor supports PNG/JPEG upload, pan and zoom, conservatively cleaned closed-contour selection, brush and eraser refinement, on-canvas edit instructions, deterministic recoloring, and localized generative Remove/Replace/Restyle operations. Replace requests use a low-cost multimodal intent planner to turn short instructions into scene-aware structured plans before image generation. Generative editing uses provider-neutral server boundaries, deterministic fake implementations by default, and optional OpenAI adapters. All provider candidates pass through authoritative compositing before preview. Each generative request also creates a local, reproducible diagnostic bundle containing its processing timeline, masks, provider calls, artifacts, prompts, plan, and final preview. Accepted operations, versions, and masks form linear immutable history with undo/redo, and projects can be saved to local SQLite metadata plus immutable filesystem assets, reopened, and exported as PNG or JPEG.
+The editor supports PNG/JPEG upload, pan and zoom, conservatively cleaned closed-contour selection, brush and eraser refinement, on-canvas edit instructions, deterministic recoloring, and generative Remove/Replace/Restyle operations. Replace requests use a low-cost multimodal intent planner to turn short instructions into scene-aware structured plans before image generation. Generative editing uses provider-neutral server boundaries, deterministic fake implementations by default, and optional OpenAI adapters. The complete normalized provider candidate is the default review preview; an explicit protected mode retains exact mask compositing. Each request creates a reproducible diagnostic bundle with its timeline, masks, provider calls, prompts, plan, candidate-scope analysis, change map, and final preview. Accepted operations, versions, and masks form linear immutable history with undo/redo, and projects can be saved to local SQLite metadata plus immutable filesystem assets, reopened, and exported as PNG or JPEG.
 
 ## v0.1 scope
 
@@ -30,7 +30,7 @@ Upload → canvas → manual mask → local recolor → generative edit → hist
 - on-canvas edit instructions synchronized with the inspector
 - deterministic recoloring
 - localized generative removal or restyling
-- exact preservation outside the effective mask
+- complete generative candidate review with optional exact protected masking
 - preview acceptance and discard
 - linear undo, redo, and comparison
 - local project persistence
@@ -92,7 +92,7 @@ Directories should be introduced with their first real behavior. Do not create s
 - UI components depend on feature contracts, not provider SDKs or persistence clients.
 - Every edit enters through the editing feature.
 - Provider credentials, SDK calls, and response normalization remain server-side.
-- Local and generative processors converge on the same preview, compositing, acceptance, and history flow.
+- Local and generative processors converge on the same preview, acceptance, and history flow; only protected or deterministic edits require compositing.
 - The original asset and every accepted output asset are immutable.
 - Diagnostics observe the edit pipeline but cannot create operations, versions, or provider requests.
 - Diagnostic failures never change the result or status of the edit they observe.
@@ -110,7 +110,7 @@ An immutable stored image with its width, height, media type, storage key, and c
 
 ### Mask asset
 
-A mask associated with an input asset. Processing masks always use the input image's dimensions and source-image coordinate system.
+A mask associated with an input asset. A generative mask records the user's approximate focus unless the operation selected protected mode. Processing masks always use the input image's dimensions and source-image coordinate system.
 
 ### Edit operation
 
@@ -123,7 +123,7 @@ EditOperation
 - maskAssetId
 - type
 - prompt, when applicable
-- parameters
+- parameters, including generative boundary policy and candidate diagnosis
 - method: local | generative
 - status: draft | processing | preview | accepted | discarded | failed
 ```
@@ -168,7 +168,9 @@ Edit router
     ↓
 Candidate result
     ↓
-Authoritative compositing
+Candidate policy
+    ├── Review → complete normalized candidate
+    └── Protected → exact masked composite
     ↓
 Preview
     ├── Discard → no accepted version
@@ -195,7 +197,7 @@ For v0.1, the user selects the operation explicitly. Replace performs contextual
 Send the provider:
 
 - the complete current image
-- a same-size edit mask
+- a same-size approximate focus mask
 - the focused edit instruction
 - preservation-oriented context
 
@@ -207,19 +209,21 @@ Replace sends a highlighted full-scene view, a highlighted selection detail, and
 
 The planner is text-only and cannot create image pixels. Planner failure stops the pipeline before the more expensive image request. Remove and Restyle continue directly to the image provider.
 
-### Authoritative compositing
+### Candidate authority and protected compositing
 
-The provider result is a candidate, not the final authority. Construct the preview using exact input pixels outside the effective mask:
+The normalized provider result is an immutable edit proposal. Review mode shows it without post-generation clipping so the application cannot damage complete subjects, text, shadows, reflections, or blending that cross the approximate selection.
+
+Protected mode is explicit and constructs the preview using exact input pixels outside the effective mask:
 
 ```text
 preview = candidate × effectiveMask + input × (1 - effectiveMask)
 ```
 
-The application may intentionally feather or slightly dilate the mask, but this must be controlled by explicit processing parameters.
+Candidate diagnosis compares source, selection hint, and normalized result to produce warnings and a change map. Diagnosis is observational and must never rewrite preview pixels. The application may feather or slightly dilate protected masks, but this must be controlled by explicit processing parameters.
 
 ### Reproducible request diagnostics
 
-Generative requests carry application-owned project and request IDs through the browser, route, providers, accepted operation, and diagnostic bundle. One user attempt remains one bundle even when Replace makes two provider calls. Schema-v2 manifests preserve ordered planner and image-editor call records, both provider request IDs, highlighted planning views, the structured plan, source and effective masks, provider-sized inputs, raw and normalized candidates, constructed prompt, sanitized provider responses, and final browser-composited preview when each artifact exists. Schema-v1 bundles remain readable.
+Generative requests carry application-owned project and request IDs through the browser, route, providers, accepted operation, and diagnostic bundle. One user attempt remains one bundle even when Replace makes two provider calls. Schema-v3 manifests preserve the boundary policy, preview source, candidate analysis, change map, ordered provider calls, highlighted planning views, structured plan, source and focus masks, raw and normalized candidates, constructed prompt, sanitized responses, and final preview. Older bundles remain readable and normalize to their historical protected behavior.
 
 Diagnostic metadata is indexed in local SQLite for the UI, while ordinary PNG and JSON files remain directly inspectable under `.local-edit/diagnostics/<project-id>/<request-id>/`. The newest ten completed unpinned bundles are retained globally; pinned bundles are never automatically pruned. These files contain personal images and exact prompts, remain Git-ignored, and are intended only for a locally bound development server.
 
@@ -227,7 +231,7 @@ Diagnostic metadata is indexed in local SQLite for the UI, while ordinary PNG an
 
 A preview does not advance history. Accepting it performs one logical operation:
 
-1. Save the composite as an immutable asset.
+1. Save the complete candidate or protected composite as an immutable asset.
 2. Create one version linked to its input version.
 3. Mark the edit operation accepted.
 4. Advance the project's current-version pointer.
@@ -270,6 +274,7 @@ These decisions are intentionally kept here until the project becomes large enou
 | Development storage | SQLite and local filesystem | Provisional |
 | Request diagnostics | Structured local manifests plus directly inspectable artifacts | Accepted |
 | Replace intent planning | Structured multimodal plan before image generation | Accepted |
+| Generative selection semantics | Approximate focus by default; explicit protected boundary available | Accepted |
 
 ## Code documentation policy
 

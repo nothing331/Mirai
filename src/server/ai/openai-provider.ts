@@ -28,7 +28,7 @@ export class OpenAIImageEditProvider implements ImageEditProvider {
       const providerImage = await sharp(request.imagePng).resize(providerWidth, providerHeight, { fit: "fill" }).png().toBuffer();
       const providerMask = await makeOpenAITransparencyMask(request.maskPng, providerWidth, providerHeight);
       const selection = await describeSelection(request.maskPng, request.width, request.height);
-      const instruction = buildEditInstruction(request.operation, request.prompt, selection, request.plan);
+      const instruction = buildEditInstruction(request.operation, request.prompt, selection, request.boundaryPolicy, request.plan);
       await diagnostics?.event("provider-preparation", "Prepared resized provider image, transparency mask, and instruction.", { providerWidth, providerHeight });
       await diagnostics?.artifact("provider-input.png", providerImage, "image/png");
       await diagnostics?.artifact("provider-mask.png", providerMask, "image/png");
@@ -102,17 +102,26 @@ interface SelectionDescription {
 }
 
 /** Builds operation-specific constraints so a selection is treated as context, placement, or material—not a crop. */
-export function buildEditInstruction(operation: ImageEditRequest["operation"], prompt: string, selection: SelectionDescription, plan?: ImageEditRequest["plan"]): string {
-  const geometry = `The editable region begins at ${selection.leftPercent}% from the left and ${selection.topPercent}% from the top, and spans ${selection.widthPercent}% of the image width by ${selection.heightPercent}% of the image height.`;
+export function buildEditInstruction(
+  operation: ImageEditRequest["operation"],
+  prompt: string,
+  selection: SelectionDescription,
+  boundaryPolicy: ImageEditRequest["boundaryPolicy"],
+  plan?: ImageEditRequest["plan"],
+): string {
+  const geometry = `The user's marked focus begins at ${selection.leftPercent}% from the left and ${selection.topPercent}% from the top, and spans ${selection.widthPercent}% of the image width by ${selection.heightPercent}% of the image height.`;
+  const scope = boundaryPolicy === "protected"
+    ? "Treat that focus as a strict edit boundary. Keep every visible change inside it and preserve every pixel outside it exactly."
+    : "Treat that focus as an approximate indication of intent, not as a clipping boundary. Extend complete subjects, readable text, shadows, reflections, and natural blending beyond it when needed, while preserving unrelated scene content as faithfully as possible.";
   if (operation === "remove") {
-    return `Remove the selected subject completely. Reconstruct the background continuously across the entire editable region using the surrounding scene as evidence. Continue visible lines, surfaces, shadows, texture, depth, perspective, lighting, and natural irregularities through the removed area. Do not leave a blur, smudge, repeated texture, halo, outline, patch, or ghost of the removed subject. Do not add any new object, person, text, decoration, or focal element. ${geometry} Preserve all content outside the editable region exactly. ${prompt}`.trim();
+    return `Remove the selected subject completely. Reconstruct the background continuously using the surrounding scene as evidence. Continue visible lines, surfaces, shadows, texture, depth, perspective, lighting, and natural irregularities through the removed area. Do not leave a blur, smudge, repeated texture, halo, outline, patch, or ghost of the removed subject. Do not add any new object, person, text, decoration, or focal element. ${geometry} ${scope} ${prompt}`.trim();
   }
   if (operation === "replace") {
-    const edgeConstraint = selection.touchesImageEdge ? "The editable region touches an image edge, so scale and position the requested subject away from that edge unless the instruction explicitly asks for an intentionally cropped subject." : "Keep clear breathing room between the complete subject and every edge of the editable region.";
     const plannedContext = plan ? buildPlannedContext(plan) : "Infer the most physically plausible representation from the selected surface and surrounding scene.";
-    return `Add or replace content according to this instruction: ${prompt}. ${plannedContext} Treat the editable region as a placement envelope, not as a crop and not as an area that must be completely filled. Keep the requested content recognizable and entirely inside the editable region, scaling it down when necessary. ${edgeConstraint} Integrate it convincingly with correct perspective, scale, contact, occlusion, lighting, reflections, and shadows appropriate to its planned representation. ${geometry} Preserve all content outside the editable region exactly and introduce no unrelated objects or text.`;
+    const edgeConstraint = selection.touchesImageEdge ? "The focus touches an image edge; avoid accidental cropping unless the instruction asks for it." : "Keep the requested content complete and visually balanced in the surrounding composition.";
+    return `Add or replace content according to this instruction: ${prompt}. ${plannedContext} ${edgeConstraint} Integrate it convincingly with correct perspective, scale, contact, occlusion, lighting, reflections, and shadows appropriate to its planned representation. ${geometry} ${scope} Introduce no unrelated objects or text.`;
   }
-  return `Restyle the existing selected content according to this instruction: ${prompt}. Keep the selected subject's identity, silhouette, geometry, scale, and position. Change only the requested appearance or material; do not add a new subject or crop existing parts. Match the scene's lighting and perspective. ${geometry} Preserve all content outside the editable region exactly.`;
+  return `Restyle the existing selected content according to this instruction: ${prompt}. Keep the selected subject's identity, silhouette, geometry, scale, and position. Change only the requested appearance or material; do not add a new subject or crop existing parts. Match the scene's lighting and perspective. ${geometry} ${scope}`;
 }
 
 function flattenUsage(usage: unknown): Record<string, string | number | boolean | null> {

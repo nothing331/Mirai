@@ -1,3 +1,5 @@
+import type { CandidateAnalysis, EditBoundaryPolicy } from "@/shared/edit-boundary";
+
 export type Tool = "lasso" | "brush" | "eraser" | "pan";
 
 export interface SourcePoint {
@@ -70,7 +72,7 @@ interface PreviewBase {
 
 export type EditPreview = PreviewBase & (
   | { type: "recolor"; method: "local"; parameters: { color: string } }
-  | { type: "remove" | "replace" | "restyle"; method: "generative"; parameters: { prompt: string; providerRequestId: string; diagnosticRequestId: string } }
+  | { type: "remove" | "replace" | "restyle"; method: "generative"; parameters: { prompt: string; providerRequestId: string; diagnosticRequestId: string; boundaryPolicy: EditBoundaryPolicy; candidateAnalysis: CandidateAnalysis } }
 );
 
 interface OperationBase {
@@ -83,7 +85,7 @@ interface OperationBase {
 
 export type EditOperation = OperationBase & (
   | { type: "recolor"; method: "local"; parameters: { color: string } }
-  | { type: "remove" | "replace" | "restyle"; method: "generative"; parameters: { prompt: string; providerRequestId: string; diagnosticRequestId: string } }
+  | { type: "remove" | "replace" | "restyle"; method: "generative"; parameters: { prompt: string; providerRequestId: string; diagnosticRequestId: string; boundaryPolicy: EditBoundaryPolicy; candidateAnalysis: CandidateAnalysis } }
 );
 
 export interface GenerativeRequestSnapshot {
@@ -93,7 +95,8 @@ export interface GenerativeRequestSnapshot {
   inputVersion: ImageVersion;
   selectionId: string;
   selectionMask: ProcessingMask;
-  effectiveMask: ProcessingMask;
+  providerMask: ProcessingMask;
+  boundaryPolicy: EditBoundaryPolicy;
   operation: "remove" | "replace" | "restyle";
   prompt: string;
   scenario: FakeScenario;
