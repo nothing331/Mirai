@@ -21,6 +21,8 @@ npm run dev
 
 Open `http://localhost:3000`. Saved project metadata is stored in `.local-edit/projects.sqlite`; immutable accepted images and masks are stored under `.local-edit/assets/`. Add `.local-edit/` to backups if you want to retain local projects between machines.
 
+Mirai keeps direct canvas tools in the left rail and shows only the active workflow in the adjacent inspector. Use `L` for Lasso, `B` for Brush, `E` for Eraser, `H` for Pan, and `Cmd/Ctrl + Z` or `Cmd/Ctrl + Shift + Z` for undo and redo. The inspector can collapse without changing the selection, prompt, preview, or accepted history.
+
 ## Request diagnostics
 
 Every generative edit creates a local evidence bundle under:
