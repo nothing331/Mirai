@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import Image from "next/image";
-import { Check, Focus, ImagePlus, LoaderCircle, X } from "lucide-react";
+import { Check, Focus, ImagePlus, LoaderCircle, SlidersHorizontal, X } from "lucide-react";
 import type { ChangeEvent } from "react";
 import { useState } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -15,7 +15,7 @@ const EditorCanvas = dynamic(() => import("../EditorCanvas").then((module) => mo
   loading: () => <div className="absolute inset-0 grid place-items-center font-mono text-xs text-white">Preparing canvas…</div>,
 });
 
-export function CanvasFrame({ busyAction, onUpload }: { busyAction: BusyAction; onUpload: (event: ChangeEvent<HTMLInputElement>) => void }) {
+export function CanvasFrame({ busyAction, onUpload, onAdjustTransform }: { busyAction: BusyAction; onUpload: (event: ChangeEvent<HTMLInputElement>) => void; onAdjustTransform: () => void }) {
   const [compareWith, setCompareWith] = useState<ComparisonBase>("original");
   const state = useEditorStore(useShallow((editor) => ({
     currentVersion: getCurrentVersion(editor),
@@ -44,10 +44,12 @@ export function CanvasFrame({ busyAction, onUpload }: { busyAction: BusyAction; 
             baseLabel={compareWith === "previous" ? "Previous" : "Original"}
             originalUrl={comparisonVersion.dataUrl}
             previewUrl={state.preview.dataUrl}
-            boundaryPolicy={state.preview.method === "generative" ? state.preview.parameters.boundaryPolicy : null}
+            boundaryPolicy={state.preview.method === "generative" && state.preview.type !== "transform" ? state.preview.parameters.boundaryPolicy : null}
             candidateAnalysis={state.preview.method === "generative" ? state.preview.parameters.candidateAnalysis : null}
+            transformPreview={state.preview.type === "transform"}
             onAccept={state.acceptPreview}
             onDiscard={state.discardPreview}
+            onAdjustTransform={onAdjustTransform}
           />
         ) : state.currentVersion && state.selectionMask ? (
           <EditorCanvas version={state.currentVersion} mask={state.selectionMask} color={state.color} viewResetKey={state.viewResetKey} />
@@ -93,14 +95,16 @@ function ProjectLoadingOverlay() {
 }
 
 /** Shows the immutable base and unaccepted candidate before history advances. */
-function PreviewComparison({ baseLabel, originalUrl, previewUrl, boundaryPolicy, candidateAnalysis, onAccept, onDiscard }: {
+function PreviewComparison({ baseLabel, originalUrl, previewUrl, boundaryPolicy, candidateAnalysis, transformPreview, onAccept, onDiscard, onAdjustTransform }: {
   baseLabel: string;
   originalUrl: string;
   previewUrl: string;
   boundaryPolicy: EditBoundaryPolicy | null;
   candidateAnalysis: CandidateAnalysis | null;
+  transformPreview: boolean;
   onAccept: () => boolean;
   onDiscard: () => void;
+  onAdjustTransform: () => void;
 }) {
   return (
     <div className="preview-enter absolute inset-0 grid grid-rows-[auto_1fr_auto] bg-[#151513] p-2 sm:p-3" data-testid="preview-comparison">
@@ -121,6 +125,7 @@ function PreviewComparison({ baseLabel, originalUrl, previewUrl, boundaryPolicy,
         </figure>
       </div>
       <div className="flex justify-end gap-2 pt-2 sm:pt-3">
+        {transformPreview && <button type="button" className="flex h-9 items-center gap-2 px-3 text-xs font-bold text-white/75 outline-none hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white" onClick={onAdjustTransform}><SlidersHorizontal className="size-4" />Adjust</button>}
         <button type="button" className="flex h-9 items-center gap-2 px-3 text-xs font-bold text-white/75 outline-none hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white" onClick={onDiscard}><X className="size-4" />Discard</button>
         <button type="button" data-testid="accept-preview" className="flex h-9 items-center gap-2 bg-acid px-3 text-xs font-bold text-ink outline-none hover:bg-white focus-visible:ring-2 focus-visible:ring-acid" onClick={onAccept}><Check className="size-4" />Accept edit</button>
       </div>

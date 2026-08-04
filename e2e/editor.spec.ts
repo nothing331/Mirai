@@ -156,6 +156,44 @@ test("brush paint is draft-only until applied and eraser only clears that draft"
   await expect(page.getByTestId("editor-inspector")).toBeVisible();
 });
 
+test("Transform works without a selection for local and generative presets", async ({ page }) => {
+  const projectName = `Transform project ${Date.now()}`;
+  await page.goto("/");
+  await uploadTestImage(page);
+
+  await page.getByTestId("open-transform").click();
+  const transform = page.getByRole("dialog", { name: "Transform the visual language" });
+  await expect(transform).toBeVisible();
+  await expect(transform.getByText("5 recipes + custom")).toBeVisible();
+  await transform.getByRole("radio", { name: /Monochrome/ }).click();
+  await expect(transform.getByText(/no model call/i)).toBeVisible();
+  await transform.getByTestId("generate-transform").click();
+  await expect(page.getByTestId("preview-comparison")).toBeVisible();
+  await page.getByTestId("accept-preview").click();
+  await expect(page.getByText("1 accepted edit", { exact: true })).toBeVisible();
+
+  await page.getByTestId("undo").click();
+  await page.getByTestId("open-transform").click();
+  await transform.getByRole("radio", { name: /Anime Theme/ }).click();
+  await transform.getByLabel("Transformation prompt").fill("Warm nostalgic evening light");
+  await transform.getByRole("radio", { name: "Faithful" }).click();
+  await transform.getByLabel("Development scenario").selectOption("success");
+  await transform.getByTestId("generate-transform").click();
+  await expect(page.getByTestId("preview-comparison")).toBeVisible();
+  await page.getByRole("button", { name: "Adjust" }).click();
+  await expect(transform).toBeVisible();
+  await expect(transform.getByLabel("Transformation prompt")).toHaveValue("Warm nostalgic evening light");
+  await transform.getByTestId("generate-transform").click();
+  await expect(page.getByTestId("preview-comparison")).toBeVisible();
+  await page.getByTestId("accept-preview").click();
+  await expect(page.getByText("1 accepted edit", { exact: true })).toBeVisible();
+  await page.getByLabel("Project name").fill(projectName);
+  await page.getByRole("button", { name: "Save" }).click();
+  await page.reload();
+  await page.getByLabel("Open saved project").selectOption({ label: projectName });
+  await expect(page.getByText("1 accepted edit", { exact: true })).toBeVisible();
+});
+
 test("fake provider supports generative success, retry, and failure states", async ({ page }) => {
   await page.goto("/");
   await uploadTestImage(page);

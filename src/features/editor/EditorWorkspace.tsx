@@ -12,10 +12,11 @@ import { useEditorStore } from "./store";
 import { CanvasFrame } from "./workspace/CanvasFrame";
 import { EditorInspector } from "./workspace/EditorInspector";
 import { ToolRail } from "./workspace/ToolRail";
+import { TransformDialog } from "./workspace/TransformDialog";
 import { WorkspaceHeader } from "./workspace/WorkspaceHeader";
 import { deriveWorkspacePhase } from "./workspace/workspace-phase";
 import type { BusyAction, ExportFormat, ProviderCapabilities } from "./workspace/workspace-types";
-import type { Tool } from "./types";
+import type { Tool, TransformInput } from "./types";
 
 /** Coordinates project I/O and provider authorization around the editor's domain-owned state. */
 export function EditorWorkspace() {
@@ -34,7 +35,9 @@ export function EditorWorkspace() {
     setError: state.setError,
     createPreview: state.createPreview,
     requestGenerativePreview: state.requestGenerativePreview,
+    requestTransformPreview: state.requestTransformPreview,
     retryGenerativePreview: state.retryGenerativePreview,
+    discardPreview: state.discardPreview,
     undo: state.undo,
     redo: state.redo,
   })));
@@ -44,6 +47,7 @@ export function EditorWorkspace() {
   const [savedProjects, setSavedProjects] = useState<SavedProjectSummary[]>([]);
   const [exportFormat, setExportFormat] = useState<ExportFormat>("image/png");
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [transformOpen, setTransformOpen] = useState(false);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(() => !useEditorStore.getState().currentVersionId);
   const phase = deriveWorkspacePhase({ hasImage: Boolean(editor.currentVersionId), preview: editor.preview, generativeState: editor.generativeState, selectionMask: editor.selectionMask });
 
@@ -97,13 +101,15 @@ export function EditorWorkspace() {
   }, [editor, selectTool]);
 
   /** Confirms and counts a paid request before allowing it to reach the real provider. */
-  function authorizeProviderRequest(label: string): boolean {
+  function authorizeProviderRequest(label: string, usesPlanner: boolean): boolean {
     if (providerCapabilities?.provider !== "openai") return true;
     if (realRequestsUsed >= providerCapabilities.maxRealRequestsPerSession) {
       editor.setError(`The session limit of ${providerCapabilities.maxRealRequestsPerSession} real API requests has been reached.`);
       return false;
     }
-    const confirmed = window.confirm(`${label} will run context planning and, if planning succeeds, one paid OpenAI image request.\n\nPlanner: ${providerCapabilities.plannerModel}\nImage model: ${providerCapabilities.imageModel}\nQuality: ${providerCapabilities.quality}\nMaximum input edge: ${providerCapabilities.maxInputEdge}px\nSession usage after confirmation: ${realRequestsUsed + 1}/${providerCapabilities.maxRealRequestsPerSession}`);
+    const requestDescription = usesPlanner ? "context planning and, if planning succeeds, one paid OpenAI image request" : "one paid OpenAI image request without a planner call";
+    const plannerDescription = usesPlanner ? `Planner: ${providerCapabilities.plannerModel}\n` : "";
+    const confirmed = window.confirm(`${label} will run ${requestDescription}.\n\n${plannerDescription}Image model: ${providerCapabilities.imageModel}\nQuality: ${providerCapabilities.quality}\nMaximum input edge: ${providerCapabilities.maxInputEdge}px\nSession usage after confirmation: ${realRequestsUsed + 1}/${providerCapabilities.maxRealRequestsPerSession}`);
     if (confirmed) {
       const nextUsage = realRequestsUsed + 1;
       setRealRequestsUsed(nextUsage);
@@ -118,11 +124,24 @@ export function EditorWorkspace() {
       return;
     }
     const ready = editor.selectionMask && maskHasSelection(editor.selectionMask) && (editor.editType === "remove" || editor.prompt.trim().length > 0);
-    if (!ready || authorizeProviderRequest("Generate preview")) await editor.requestGenerativePreview();
+    if (!ready || authorizeProviderRequest("Generate preview", editor.editType === "replace")) await editor.requestGenerativePreview();
   }
 
-  async function handleRetryPreview() {
-    if (authorizeProviderRequest("Retry preview")) await editor.retryGenerativePreview();
+  async function handleRetryPreview(): Promise<boolean> {
+    const usesPlanner = editor.generativeState.snapshot?.operation === "replace";
+    if (!authorizeProviderRequest("Retry preview", usesPlanner)) return false;
+    return editor.retryGenerativePreview();
+  }
+
+  async function handleTransformPreview(input: TransformInput): Promise<boolean> {
+    const localMonochrome = input.presetId === "monochrome" && input.userPrompt.trim().length === 0;
+    if (!localMonochrome && !authorizeProviderRequest("Generate transformation", false)) return false;
+    return editor.requestTransformPreview(input);
+  }
+
+  function handleAdjustTransform() {
+    editor.discardPreview();
+    setTransformOpen(true);
   }
 
   async function handleUpload(event: ChangeEvent<HTMLInputElement>) {
@@ -180,6 +199,8 @@ export function EditorWorkspace() {
           onUpload={handleUpload}
           onOpen={(projectId) => void handleOpen(projectId)}
           onSave={() => void handleSave()}
+          onTransform={() => setTransformOpen(true)}
+          transformDisabled={phase === "processing" || phase === "preview"}
           onOpenDiagnostics={() => setDiagnosticsOpen(true)}
         />
         <section className={cn(
@@ -201,9 +222,18 @@ export function EditorWorkspace() {
               </div>
             )}
           </aside>
-          <CanvasFrame busyAction={busyAction} onUpload={handleUpload} />
+          <CanvasFrame busyAction={busyAction} onUpload={handleUpload} onAdjustTransform={handleAdjustTransform} />
         </section>
       </main>
+      <TransformDialog
+        open={transformOpen}
+        providerCapabilities={providerCapabilities}
+        realRequestsUsed={realRequestsUsed}
+        onClose={() => setTransformOpen(false)}
+        onGenerate={handleTransformPreview}
+        onRetry={handleRetryPreview}
+        onOpenDiagnostics={() => setDiagnosticsOpen(true)}
+      />
       <DiagnosticsDrawer projectId={editor.projectId} focusRequestId={editor.lastRequestId} open={diagnosticsOpen} onClose={() => setDiagnosticsOpen(false)} />
     </>
   );
