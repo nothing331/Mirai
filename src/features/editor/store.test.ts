@@ -174,6 +174,24 @@ describe("filled selection preview and acceptance", () => {
     expect(state.selectionMask?.data.every((alpha) => alpha === 0)).toBe(true);
   });
 
+  it("maps a reopened project's persisted identity into editor state", () => {
+    useEditorStore.getState().restoreProject({
+      id: "saved-project-id",
+      name: "Saved project",
+      originalVersionId: original.id,
+      currentVersionId: original.id,
+      versions: [original],
+      operations: [],
+      maskAssets: [],
+    });
+
+    expect(useEditorStore.getState()).toMatchObject({
+      projectId: "saved-project-id",
+      projectName: "Saved project",
+      currentVersionId: original.id,
+    });
+  });
+
   it("undo and redo move only the current immutable version pointer", () => {
     useEditorStore.getState().fillSelection(firstPixelContour);
     useEditorStore.getState().createPreview();

@@ -117,7 +117,24 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   restoreProject: (project) => {
     const current = project.versions.find((version) => version.id === project.currentVersionId);
     if (!current) return;
-    set((state) => ({ ...project, preview: null, generativeState: idleGenerativeState, lastRequestId: null, selectionMask: createMask(current.width, current.height), selectionId: crypto.randomUUID(), selectionDiagnostics: null, lassoVisualization: null, viewResetKey: state.viewResetKey + 1, error: null }));
+    set((state) => ({
+      projectId: project.id,
+      projectName: project.name,
+      originalVersionId: project.originalVersionId,
+      currentVersionId: project.currentVersionId,
+      versions: project.versions,
+      operations: project.operations,
+      maskAssets: project.maskAssets,
+      preview: null,
+      generativeState: idleGenerativeState,
+      lastRequestId: null,
+      selectionMask: createMask(current.width, current.height),
+      selectionId: crypto.randomUUID(),
+      selectionDiagnostics: null,
+      lassoVisualization: null,
+      viewResetKey: state.viewResetKey + 1,
+      error: null,
+    }));
   },
   setProjectName: (projectName) => set({ projectName }),
   setViewport: (viewport) => set({ viewport }),
