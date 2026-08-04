@@ -140,8 +140,8 @@ describe("filled selection preview and acceptance", () => {
     expect(accepted.maskAssets).toHaveLength(1);
     expect(accepted.selectionMask?.data.every((alpha) => alpha === 0)).toBe(true);
     const capturedMask = [...accepted.maskAssets[0].data];
-    accepted.setTool("eraser");
-    accepted.paintSelection({ x: 0, y: 0 }, { x: 0, y: 0 });
+    accepted.setSelectionMode("subtract");
+    accepted.refineSelection({ x: 0, y: 0 }, { x: 0, y: 0 });
     expect([...useEditorStore.getState().maskAssets[0].data]).toEqual(capturedMask);
   });
 
@@ -157,9 +157,69 @@ describe("filled selection preview and acceptance", () => {
   it("changing the mask invalidates its stale preview", () => {
     useEditorStore.getState().fillSelection(firstPixelContour);
     useEditorStore.getState().createPreview();
-    useEditorStore.getState().setTool("brush");
-    useEditorStore.getState().paintSelection({ x: 2, y: 0 }, { x: 2, y: 0 });
+    useEditorStore.getState().setSelectionMode("add");
+    useEditorStore.getState().refineSelection({ x: 2, y: 0 }, { x: 2, y: 0 });
     expect(useEditorStore.getState().preview).toBeNull();
+  });
+
+  it("keeps brush and eraser gestures outside history until paint is applied", () => {
+    useEditorStore.getState().setColor("#ff0000");
+    useEditorStore.getState().applyPaintStroke([{ x: 0, y: 0 }]);
+    useEditorStore.getState().applyPaintStroke([{ x: 2, y: 0 }]);
+    useEditorStore.getState().applyPaintStroke([{ x: 2, y: 0 }], true);
+
+    const pending = useEditorStore.getState();
+    expect(pending.paintSession).toMatchObject({ colors: ["#ff0000"], strokeCount: 3 });
+    expect(pending.versions).toHaveLength(1);
+    expect(pending.operations).toHaveLength(0);
+    expect(pending.paintSession!.overlay.pixels[3]).toBe(255);
+    expect(pending.paintSession!.overlay.pixels[11]).toBe(0);
+  });
+
+  it("applies a paint session as exactly one immutable operation and version", () => {
+    useEditorStore.getState().fillSelection(firstPixelContour);
+    const selectionBeforePaint = [...useEditorStore.getState().selectionMask!.data];
+    useEditorStore.getState().setColor("#ff0000");
+    useEditorStore.getState().applyPaintStroke([{ x: 0, y: 0 }]);
+    useEditorStore.getState().applyPaintStroke([{ x: 1, y: 0 }]);
+
+    expect(useEditorStore.getState().commitPaintSession()).toBe(true);
+    const state = useEditorStore.getState();
+    expect(state.paintSession).toBeNull();
+    expect(state.versions).toHaveLength(2);
+    expect(state.operations).toHaveLength(1);
+    expect(state.operations[0]).toMatchObject({ type: "paint", method: "local", parameters: { colors: ["#ff0000"], strokeCount: 2 } });
+    expect([...state.selectionMask!.data]).toEqual(selectionBeforePaint);
+  });
+
+  it("discards pending paint without changing pixels or history", () => {
+    useEditorStore.getState().applyPaintStroke([{ x: 0, y: 0 }]);
+    useEditorStore.getState().discardPaintSession();
+    const state = useEditorStore.getState();
+    expect(state.paintSession).toBeNull();
+    expect(state.currentVersionId).toBe("original");
+    expect(state.versions).toEqual([original]);
+    expect(state.operations).toEqual([]);
+  });
+
+  it("blocks generation while paint is pending", async () => {
+    useEditorStore.getState().fillSelection(firstPixelContour);
+    useEditorStore.getState().setEditType("remove");
+    useEditorStore.getState().applyPaintStroke([{ x: 0, y: 0 }]);
+
+    expect(await useEditorStore.getState().requestGenerativePreview()).toBe(false);
+    expect(requestGenerativeCandidate).not.toHaveBeenCalled();
+    expect(useEditorStore.getState().error).toContain("Apply or discard");
+  });
+
+  it("clears pending paint when immutable history moves", () => {
+    useEditorStore.getState().fillSelection(firstPixelContour);
+    useEditorStore.getState().createPreview();
+    useEditorStore.getState().acceptPreview();
+    useEditorStore.getState().applyPaintStroke([{ x: 0, y: 0 }]);
+
+    expect(useEditorStore.getState().undo()).toBe(true);
+    expect(useEditorStore.getState().paintSession).toBeNull();
   });
 
   it("reset restores the original and clears the selection and history", () => {

@@ -19,6 +19,22 @@ export interface ProcessingMask {
   data: Uint8ClampedArray;
 }
 
+export interface PaintOverlay {
+  width: number;
+  height: number;
+  pixels: Uint8ClampedArray;
+}
+
+export interface PaintSession {
+  id: string;
+  baseVersionId: string;
+  overlay: PaintOverlay;
+  colors: string[];
+  strokeCount: number;
+}
+
+export type SelectionMode = "draw" | "add" | "subtract";
+
 export type SelectionWarning = "self-intersection" | "large-auto-correction" | "raw-contour-preserved";
 
 export interface SelectionDiagnostics {
@@ -64,7 +80,6 @@ export type FakeScenario = "success" | "slow" | "retryable-error" | "fatal-error
 interface PreviewBase {
   id: string;
   inputVersionId: string;
-  selectionId: string;
   mask: MaskAsset;
   pixels: Uint8ClampedArray;
   dataUrl: string;
@@ -72,6 +87,7 @@ interface PreviewBase {
 
 export type EditPreview = PreviewBase & (
   | { type: "recolor"; method: "local"; parameters: { color: string } }
+  | { type: "paint"; method: "local"; parameters: { colors: string[]; strokeCount: number } }
   | { type: "remove" | "replace" | "restyle"; method: "generative"; parameters: { prompt: string; providerRequestId: string; diagnosticRequestId: string; boundaryPolicy: EditBoundaryPolicy; candidateAnalysis: CandidateAnalysis } }
 );
 
@@ -85,6 +101,7 @@ interface OperationBase {
 
 export type EditOperation = OperationBase & (
   | { type: "recolor"; method: "local"; parameters: { color: string } }
+  | { type: "paint"; method: "local"; parameters: { colors: string[]; strokeCount: number } }
   | { type: "remove" | "replace" | "restyle"; method: "generative"; parameters: { prompt: string; providerRequestId: string; diagnosticRequestId: string; boundaryPolicy: EditBoundaryPolicy; candidateAnalysis: CandidateAnalysis } }
 );
 

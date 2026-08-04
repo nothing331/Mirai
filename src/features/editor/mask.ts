@@ -23,28 +23,37 @@ export function paintMask(
   value: 0 | 255,
   softness = 0.2,
 ): ProcessingMask {
+  return paintMaskPath(mask, [from, to], radius, value, softness);
+}
+
+/** Rasterizes one continuous pointer gesture with a single source-resolution allocation. */
+export function paintMaskPath(mask: ProcessingMask, points: SourcePoint[], radius: number, value: 0 | 255, softness = 0.2): ProcessingMask {
   const data = new Uint8ClampedArray(mask.data);
-  const distance = Math.hypot(to.x - from.x, to.y - from.y);
-  const steps = Math.max(1, Math.ceil(distance / Math.max(1, radius / 2)));
+  if (points.length === 0) return { ...mask, data };
+  const segments = points.length === 1 ? [[points[0], points[0]]] : points.slice(1).map((point, index) => [points[index], point] as const);
 
-  for (let step = 0; step <= steps; step += 1) {
-    const progress = step / steps;
-    const cx = from.x + (to.x - from.x) * progress;
-    const cy = from.y + (to.y - from.y) * progress;
-    const minX = Math.max(0, Math.floor(cx - radius));
-    const maxX = Math.min(mask.width - 1, Math.ceil(cx + radius));
-    const minY = Math.max(0, Math.floor(cy - radius));
-    const maxY = Math.min(mask.height - 1, Math.ceil(cy + radius));
+  for (const [from, to] of segments) {
+    const distance = Math.hypot(to.x - from.x, to.y - from.y);
+    const steps = Math.max(1, Math.ceil(distance / Math.max(1, radius / 2)));
+    for (let step = 0; step <= steps; step += 1) {
+      const progress = step / steps;
+      const cx = from.x + (to.x - from.x) * progress;
+      const cy = from.y + (to.y - from.y) * progress;
+      const minX = Math.max(0, Math.floor(cx - radius));
+      const maxX = Math.min(mask.width - 1, Math.ceil(cx + radius));
+      const minY = Math.max(0, Math.floor(cy - radius));
+      const maxY = Math.min(mask.height - 1, Math.ceil(cy + radius));
 
-    for (let y = minY; y <= maxY; y += 1) {
-      for (let x = minX; x <= maxX; x += 1) {
-        const distanceFromCenter = Math.hypot(x - cx, y - cy);
-        if (distanceFromCenter > radius) continue;
-        const featherWidth = Math.max(0.0001, radius * Math.min(1, Math.max(0, softness)));
-        const innerRadius = radius - featherWidth;
-        const coverage = distanceFromCenter <= innerRadius ? 255 : Math.round(255 * (radius - distanceFromCenter) / featherWidth);
-        const index = y * mask.width + x;
-        data[index] = value === 255 ? Math.max(data[index], coverage) : Math.min(data[index], 255 - coverage);
+      for (let y = minY; y <= maxY; y += 1) {
+        for (let x = minX; x <= maxX; x += 1) {
+          const distanceFromCenter = Math.hypot(x - cx, y - cy);
+          if (distanceFromCenter > radius) continue;
+          const featherWidth = Math.max(0.0001, radius * Math.min(1, Math.max(0, softness)));
+          const innerRadius = radius - featherWidth;
+          const coverage = distanceFromCenter <= innerRadius ? 255 : Math.round(255 * (radius - distanceFromCenter) / featherWidth);
+          const index = y * mask.width + x;
+          data[index] = value === 255 ? Math.max(data[index], coverage) : Math.min(data[index], 255 - coverage);
+        }
       }
     }
   }
