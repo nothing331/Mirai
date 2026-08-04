@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, Clipboard, Copy, Pin, PinOff, RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -45,33 +45,42 @@ export function DiagnosticsDrawer({ projectId, focusRequestId, open, onClose }: 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const selectedIdRef = useRef<string | null>(null);
+  const wasOpenRef = useRef(false);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (preferredRequestId?: string | null) => {
     if (!projectId) return;
     setLoading(true);
     try {
       const next = await listRequestDiagnostics(projectId, filter === "all" ? undefined : filter);
       setRequests(next);
-      const target = focusRequestId && next.some((request) => request.requestId === focusRequestId)
-        ? focusRequestId
-        : selectedId && next.some((request) => request.requestId === selectedId)
-          ? selectedId
+      const target = preferredRequestId && next.some((request) => request.requestId === preferredRequestId)
+        ? preferredRequestId
+        : selectedIdRef.current && next.some((request) => request.requestId === selectedIdRef.current)
+          ? selectedIdRef.current
           : next[0]?.requestId ?? null;
+      selectedIdRef.current = target;
       setSelectedId(target);
-      setManifest(target ? await getRequestDiagnostic(target) : null);
+      const nextManifest = target ? await getRequestDiagnostic(target) : null;
+      if (selectedIdRef.current === target) setManifest(nextManifest);
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Request diagnostics could not be loaded.");
     } finally {
       setLoading(false);
     }
-  }, [filter, focusRequestId, projectId, selectedId]);
+  }, [filter, projectId]);
 
   useEffect(() => {
-    if (!open) return;
-    const timer = window.setTimeout(() => void refresh(), 0);
+    if (!open) {
+      wasOpenRef.current = false;
+      return;
+    }
+    const preferredRequestId = wasOpenRef.current ? null : focusRequestId;
+    wasOpenRef.current = true;
+    const timer = window.setTimeout(() => void refresh(preferredRequestId), 0);
     return () => window.clearTimeout(timer);
-  }, [open, refresh]);
+  }, [filter, focusRequestId, open, projectId, refresh]);
 
   useEffect(() => {
     if (!open || !requests.some((request) => request.status === "processing")) return;
@@ -87,10 +96,12 @@ export function DiagnosticsDrawer({ projectId, focusRequestId, open, onClose }: 
   }, [open, refresh]);
 
   async function selectRequest(requestId: string) {
+    selectedIdRef.current = requestId;
     setSelectedId(requestId);
     setLoading(true);
     try {
-      setManifest(await getRequestDiagnostic(requestId));
+      const nextManifest = await getRequestDiagnostic(requestId);
+      if (selectedIdRef.current === requestId) setManifest(nextManifest);
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Request diagnostic could not be opened.");

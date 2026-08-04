@@ -167,6 +167,15 @@ test("fake provider supports generative success, retry, and failure states", asy
   await expect(page.getByText("The fake provider rejected this edit.").first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Retry same request" })).toHaveCount(0);
   await page.getByRole("button", { name: "View diagnostics" }).click();
-  await expect(page.getByRole("dialog", { name: "Request diagnostics" }).getByText("The fake provider rejected this edit.").first()).toBeVisible();
-  await expect(page.getByRole("dialog", { name: "Request diagnostics" }).getByText("failed", { exact: true }).first()).toBeVisible();
+  const reopenedDiagnostics = page.getByRole("dialog", { name: "Request diagnostics" });
+  await expect(reopenedDiagnostics.getByText("The fake provider rejected this edit.").first()).toBeVisible();
+  await expect(reopenedDiagnostics.getByText("failed", { exact: true }).first()).toBeVisible();
+
+  const requestEntries = reopenedDiagnostics.getByRole("complementary", { name: "Diagnostic requests" }).locator("button:has(code)");
+  await expect(requestEntries).toHaveCount(6);
+  const olderRequestId = await requestEntries.nth(1).locator("code").innerText();
+  await requestEntries.nth(1).click();
+  await expect(reopenedDiagnostics.getByRole("button", { name: `Request ID ${olderRequestId}` })).toBeVisible();
+  await reopenedDiagnostics.getByRole("button", { name: "Refresh" }).click();
+  await expect(reopenedDiagnostics.getByRole("button", { name: `Request ID ${olderRequestId}` })).toBeVisible();
 });
