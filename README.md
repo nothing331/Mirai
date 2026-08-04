@@ -1,10 +1,10 @@
 # Editable AI Image Editor
 
-An image editor where users select a region, apply a localized AI or deterministic edit, preserve everything outside the selection, and retain reversible history.
+An image editor where users can make focused local edits or transform the complete image, review every proposal, and retain reversible history.
 
 ## Status
 
-The finished v0.1 editor supports Lasso-based selection and AI editing, direct color painting with draft-only erasing, local recoloring, generative Remove/Replace/Restyle previews, immutable linear undo/redo, durable local projects, diagnostics, and original-resolution PNG/JPEG export. A deterministic fake provider is enabled by default, so the complete workflow runs without an API key.
+The finished v0.1 editor supports Lasso-based selection and AI editing, direct color painting with draft-only erasing, local recoloring, generative Remove/Replace/Restyle previews, preset-driven full-image Transform, immutable linear undo/redo, durable local projects, diagnostics, and original-resolution PNG/JPEG export. A deterministic fake provider is enabled by default, so the complete workflow runs without an API key.
 
 Documentation:
 
@@ -23,6 +23,8 @@ Open `http://localhost:3000`. Saved project metadata is stored in `.local-edit/p
 
 Mirai keeps direct canvas tools in the left rail and shows only the active workflow in the adjacent inspector. Lasso owns Draw/Add/Subtract selection and all selection-based generation. Brush paints a temporary color layer; Eraser removes only that pending paint; Apply records the complete paint session as one reversible edit. Apply before saving or reloading because pending paint is not persisted. Hand pans the image and hides the inspector because it has no settings. Use `L`, `B`, `E`, and `H` for those tools, and `Cmd/Ctrl + Z` or `Cmd/Ctrl + Shift + Z` for undo and redo.
 
+Open **Transform** in the header to reinterpret the complete image without drawing a selection. Choose Monochrome, Sketch, Old Cartoon, Cinematic, Anime Theme, or a custom direction, optionally refine it with a prompt, and select a preservation level. Plain Monochrome is processed locally without a provider call; other transformations use one image request and no planner call.
+
 ## Request diagnostics
 
 Every generative edit creates a local evidence bundle under:
@@ -31,7 +33,7 @@ Every generative edit creates a local evidence bundle under:
 .local-edit/diagnostics/<project-id>/<request-id>/
 ```
 
-Open **Diagnostics** in the editor to compare the source image, selection and provider-focus masks, planner views, provider inputs, raw and normalized candidates, scope change map, and final preview. Replace requests record the intent-planner and image-editor calls separately, including both OpenAI request IDs, models, timings, usage, the structured edit plan, candidate analysis, and sanitized responses. Use **Copy for coding agent** to copy the IDs and absolute `manifest.json` path needed to investigate a strange result.
+Open **Diagnostics** in the editor to compare the source image, effective masks, planner views, provider inputs, raw and normalized candidates, scope change map, and final preview. Replace requests record the intent-planner and image-editor calls separately, including both OpenAI request IDs, models, timings, usage, the structured edit plan, candidate analysis, and sanitized responses. Transform requests record their recipe version, preservation level, resolved instruction, full-image mask, and single image-editor call. Use **Copy for coding agent** to copy the IDs and absolute `manifest.json` path needed to investigate a strange result.
 
 The newest ten completed unpinned bundles are retained globally. Pin an important request before further testing to prevent automatic pruning. Pinned bundles have no automatic size limit.
 

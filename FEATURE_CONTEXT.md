@@ -104,6 +104,20 @@ Keep entries focused on current behavior. Link to project-wide decisions instead
 
 **Code and verification.** `src/features/editor/generative-client.ts`, `src/app/api/image-edits/route.ts`, `src/server/ai/contracts.ts`, `src/server/ai/validate-request.ts`, planner/provider implementations in `src/server/ai/`, adjacent unit/route tests, and `e2e/editor.spec.ts`.
 
+## Full-image Transform
+
+**Outcome.** A user can transform the complete current image without drawing a selection. Transform opens from the global workspace header and offers Monochrome, Sketch, Old Cartoon, Cinematic, and Anime Theme recipes, a custom prompt path, and Faithful/Balanced/Imaginative preservation levels.
+
+**Working flow.** The Transform dialog captures a versioned preset, optional creative direction, and preservation level. Plain Monochrome uses deterministic browser processing and makes no provider call; creative Monochrome and all other treatments capture an immutable request snapshot and call the existing image-edit route. The server validates and resolves the preset recipe, creates a same-size full-image effective mask, deterministically builds the complete provider instruction, and calls the image provider without the Replace planner. The normalized complete candidate enters the shared comparison flow. Adjust discards only the proposal and reopens the retained controls; Accept creates one operation, one version, and one full-image mask asset.
+
+**Ownership and rules.** Versioned recipes in `src/shared/transform-presets.ts` define the supported visual vocabulary. The server owns recipe resolution and final instruction construction. The editor store owns local Monochrome, immutable request snapshots, previews, and shared history transitions. Transform never overwrites the original, never requires or consumes a user selection, never exposes protected-boundary behavior, and always preserves the complete provider proposal. Pending paint must be applied or discarded first; accepting Transform clears a potentially stale selection.
+
+**Failures and recovery.** Unknown recipe versions, empty custom requests, invalid preservation levels, dimension mismatches, provider errors, and session-budget exhaustion fail without advancing history. Retry reuses the exact failed snapshot. Superseded responses are ignored. Local Monochrome remains available after the real-provider budget is exhausted.
+
+**Dependencies and limits.** Transform uses one image-provider request and no planner call. Preservation levels are prompt constraints rather than pixel-identity guarantees. The initial release produces one candidate at a time and does not accept style-reference images or user-created preset recipes.
+
+**Code and verification.** `src/features/editor/workspace/TransformDialog.tsx`, `src/features/editor/EditorWorkspace.tsx`, `src/features/editor/store.ts`, `src/features/editor/monochrome.ts`, `src/shared/transform-presets.ts`, `src/server/ai/transform-instruction.ts`, `src/app/api/image-edits/route.ts`, their adjacent tests, and `e2e/editor.spec.ts`.
+
 ## Preview, comparison, and immutable history
 
 **Outcome.** A user can compare an edit proposal with accepted images, accept or discard it, and navigate linear undo/redo history.
