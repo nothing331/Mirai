@@ -6,6 +6,7 @@ import { createGenerativeProviderMask, createMask, fillPolygonMask, maskHasSelec
 import { compositePaintOverlay, createPaintOverlay, paintOverlayMask, paintOverlayStroke } from "./paint";
 import { recolorPixels } from "./recolor";
 import { cleanLassoContour } from "./selection-geometry";
+import { blocksReplaceReviewAcceptance } from "@/shared/edit-boundary";
 import type { EditBoundaryPolicy } from "@/shared/edit-boundary";
 import type { EditOperation, EditPreview, EditType, FakeScenario, GenerativePreviewState, GenerativeRequestSnapshot, ImageVersion, LassoVisualization, MaskAsset, PaintSession, ProcessingMask, SelectionDiagnostics, SelectionMode, SourcePoint, Tool, Viewport } from "./types";
 
@@ -332,6 +333,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const input = state.versions.find((version) => version.id === preview?.inputVersionId);
     if (!preview || !input || state.currentVersionId !== preview.inputVersionId) {
       set({ preview: null, error: "The preview is no longer based on the current image." });
+      return false;
+    }
+    if (preview.method === "generative" && blocksReplaceReviewAcceptance(preview.type, preview.parameters.boundaryPolicy, preview.parameters.candidateAnalysis)) {
+      set({ error: "This Replace proposal changed too much outside the selected target. Discard it and generate again, or use protected mode." });
       return false;
     }
     const outputId = crypto.randomUUID();

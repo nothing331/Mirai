@@ -123,6 +123,7 @@ export async function POST(request: Request) {
         selectionMaskPng,
         width: imageMetadata.width,
         height: imageMetadata.height,
+        operation: operation as GenerativeOperation,
       });
       candidateAnalysis = candidateDiagnostic.analysis;
       await diagnostics?.artifact("change-map.png", candidateDiagnostic.changeMapPng, "image/png");

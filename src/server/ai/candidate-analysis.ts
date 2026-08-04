@@ -7,6 +7,7 @@ interface AnalyzeCandidateInput {
   selectionMaskPng: Uint8Array;
   width: number;
   height: number;
+  operation: "remove" | "replace" | "restyle";
 }
 
 export interface CandidateAnalysisResult {
@@ -16,6 +17,8 @@ export interface CandidateAnalysisResult {
 
 const differenceThreshold = 12;
 const selectionThreshold = 16;
+const replaceOutsideCoverageThreshold = 0.25;
+const replaceOutsideChangeShareThreshold = 0.75;
 
 /** Measures candidate scope without changing or deriving the pixels shown to the user. */
 export async function analyzeCandidate(input: AnalyzeCandidateInput): Promise<CandidateAnalysisResult> {
@@ -56,9 +59,14 @@ export async function analyzeCandidate(input: AnalyzeCandidateInput): Promise<Ca
   }
 
   const outsidePixels = pixelCount - selectedPixels;
+  const changedOutsideSelectionRatio = ratio(changedOutsideSelectionPixels, outsidePixels);
+  const replaceScopeMismatch = input.operation === "replace"
+    && changedOutsideSelectionRatio >= replaceOutsideCoverageThreshold
+    && ratio(changedOutsideSelectionPixels, changedPixels) >= replaceOutsideChangeShareThreshold;
   const warnings: CandidateAnalysis["warnings"] = [];
   if (changedOutsideSelectionPixels > 0) warnings.push("changes-outside-selection");
   if (changedBoundaryPixels > 0) warnings.push("changes-touch-selection-boundary");
+  if (replaceScopeMismatch) warnings.push("replace-scope-mismatch");
   const analysis: CandidateAnalysis = {
     differenceThreshold,
     changedPixels,
@@ -66,13 +74,15 @@ export async function analyzeCandidate(input: AnalyzeCandidateInput): Promise<Ca
     changedInsideSelectionPixels,
     changedInsideSelectionRatio: ratio(changedInsideSelectionPixels, selectedPixels),
     changedOutsideSelectionPixels,
-    changedOutsideSelectionRatio: ratio(changedOutsideSelectionPixels, outsidePixels),
+    changedOutsideSelectionRatio,
     changedBoundaryPixels,
     classification: changedPixels === 0
       ? "no-material-change"
-      : changedOutsideSelectionPixels > 0
-        ? "candidate-extends-selection"
-        : "candidate-within-selection",
+      : replaceScopeMismatch
+        ? "replace-scope-mismatch"
+        : changedOutsideSelectionPixels > 0
+          ? "candidate-extends-selection"
+          : "candidate-within-selection",
     warnings,
   };
   const changeMapPng = await sharp(changeMap, { raw: { width: input.width, height: input.height, channels: 4 } }).png().toBuffer();
