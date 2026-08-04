@@ -1,4 +1,5 @@
 import type { CandidateAnalysis, EditBoundaryPolicy } from "@/shared/edit-boundary";
+import type { TransformPresetId, TransformPreservationMode } from "@/shared/transform-presets";
 
 export type Tool = "lasso" | "brush" | "eraser" | "pan";
 
@@ -77,6 +78,20 @@ export interface MaskAsset extends ProcessingMask {
 export type EditType = "recolor" | "remove" | "replace" | "restyle";
 export type FakeScenario = "success" | "slow" | "retryable-error" | "fatal-error";
 
+export interface TransformInput {
+  presetId: TransformPresetId | null;
+  presetVersion: number | null;
+  userPrompt: string;
+  preservationMode: TransformPreservationMode;
+}
+
+interface GenerativeTransformParameters extends TransformInput {
+  resolvedInstruction: string;
+  providerRequestId: string;
+  diagnosticRequestId: string;
+  candidateAnalysis: CandidateAnalysis;
+}
+
 interface PreviewBase {
   id: string;
   inputVersionId: string;
@@ -88,6 +103,8 @@ interface PreviewBase {
 export type EditPreview = PreviewBase & (
   | { type: "recolor"; method: "local"; parameters: { color: string } }
   | { type: "paint"; method: "local"; parameters: { colors: string[]; strokeCount: number } }
+  | { type: "transform"; method: "local"; parameters: TransformInput & { resolvedInstruction: string } }
+  | { type: "transform"; method: "generative"; parameters: GenerativeTransformParameters }
   | { type: "remove" | "replace" | "restyle"; method: "generative"; parameters: { prompt: string; providerRequestId: string; diagnosticRequestId: string; boundaryPolicy: EditBoundaryPolicy; candidateAnalysis: CandidateAnalysis } }
 );
 
@@ -102,22 +119,33 @@ interface OperationBase {
 export type EditOperation = OperationBase & (
   | { type: "recolor"; method: "local"; parameters: { color: string } }
   | { type: "paint"; method: "local"; parameters: { colors: string[]; strokeCount: number } }
+  | { type: "transform"; method: "local"; parameters: TransformInput & { resolvedInstruction: string } }
+  | { type: "transform"; method: "generative"; parameters: GenerativeTransformParameters }
   | { type: "remove" | "replace" | "restyle"; method: "generative"; parameters: { prompt: string; providerRequestId: string; diagnosticRequestId: string; boundaryPolicy: EditBoundaryPolicy; candidateAnalysis: CandidateAnalysis } }
 );
 
-export interface GenerativeRequestSnapshot {
+interface GenerativeRequestBase {
   projectId: string;
   requestId: string;
   retryOfRequestId: string | null;
   inputVersion: ImageVersion;
+  providerMask: ProcessingMask;
+  scenario: FakeScenario;
+}
+
+export interface LocalizedGenerativeRequestSnapshot extends GenerativeRequestBase {
   selectionId: string;
   selectionMask: ProcessingMask;
-  providerMask: ProcessingMask;
   boundaryPolicy: EditBoundaryPolicy;
   operation: "remove" | "replace" | "restyle";
   prompt: string;
-  scenario: FakeScenario;
 }
+
+export interface TransformRequestSnapshot extends GenerativeRequestBase, TransformInput {
+  operation: "transform";
+}
+
+export type GenerativeRequestSnapshot = LocalizedGenerativeRequestSnapshot | TransformRequestSnapshot;
 
 export type GenerativePreviewState =
   | { status: "idle"; snapshot: null; error: null; retryable: false }

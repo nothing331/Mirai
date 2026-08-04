@@ -42,7 +42,7 @@ describe("filled selection preview and acceptance", () => {
   it("generative processing and preview do not advance history", async () => {
     useEditorStore.getState().fillSelection(firstPixelContour);
     useEditorStore.getState().setEditType("remove");
-    vi.mocked(requestGenerativeCandidate).mockResolvedValue({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:image/png;base64,candidate", providerRequestId: "fake-1", diagnosticRequestId: "request-1", candidateAnalysis });
+    vi.mocked(requestGenerativeCandidate).mockResolvedValue({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:image/png;base64,candidate", providerRequestId: "fake-1", diagnosticRequestId: "request-1", candidateAnalysis, resolvedInstruction: null });
     expect(await useEditorStore.getState().requestGenerativePreview()).toBe(true);
     const state = useEditorStore.getState();
     expect(state.generativeState.status).toBe("preview");
@@ -55,7 +55,7 @@ describe("filled selection preview and acceptance", () => {
     useEditorStore.getState().fillSelection(firstPixelContour);
     useEditorStore.getState().setEditType("restyle");
     useEditorStore.getState().setPrompt("brushed copper");
-    vi.mocked(requestGenerativeCandidate).mockResolvedValue({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:image/png;base64,candidate", providerRequestId: "fake-2", diagnosticRequestId: "request-2", candidateAnalysis });
+    vi.mocked(requestGenerativeCandidate).mockResolvedValue({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:image/png;base64,candidate", providerRequestId: "fake-2", diagnosticRequestId: "request-2", candidateAnalysis, resolvedInstruction: null });
     await useEditorStore.getState().requestGenerativePreview();
     useEditorStore.getState().acceptPreview();
     const state = useEditorStore.getState();
@@ -64,12 +64,48 @@ describe("filled selection preview and acceptance", () => {
     expect(state.operations[0]).toMatchObject({ type: "restyle", method: "generative", parameters: { prompt: "brushed copper", providerRequestId: "fake-2", diagnosticRequestId: "request-2", boundaryPolicy: "review", candidateAnalysis } });
   });
 
+  it("previews and accepts plain Monochrome locally without a provider request", async () => {
+    expect(await useEditorStore.getState().requestTransformPreview({ presetId: "monochrome", presetVersion: 1, userPrompt: "", preservationMode: "balanced" })).toBe(true);
+    expect(requestGenerativeCandidate).not.toHaveBeenCalled();
+    expect(useEditorStore.getState().preview).toMatchObject({ type: "transform", method: "local" });
+
+    useEditorStore.getState().acceptPreview();
+    const state = useEditorStore.getState();
+    expect(state.versions).toHaveLength(2);
+    expect(state.operations).toHaveLength(1);
+    expect(state.operations[0]).toMatchObject({ type: "transform", method: "local", parameters: { presetId: "monochrome", presetVersion: 1 } });
+    expect(state.maskAssets[0].data.every((alpha) => alpha === 255)).toBe(true);
+  });
+
+  it("captures and accepts a full-image generative Transform snapshot", async () => {
+    vi.mocked(requestGenerativeCandidate).mockResolvedValue({
+      pixels: new Uint8ClampedArray(original.pixels),
+      dataUrl: "data:image/png;base64,transform",
+      providerRequestId: "fake-transform",
+      diagnosticRequestId: "request-transform",
+      candidateAnalysis,
+      resolvedInstruction: "Resolved anime instruction",
+    });
+
+    expect(await useEditorStore.getState().requestTransformPreview({ presetId: "anime", presetVersion: 1, userPrompt: "warm evening light", preservationMode: "faithful" })).toBe(true);
+    const snapshot = vi.mocked(requestGenerativeCandidate).mock.calls[0][0];
+    expect(snapshot).toMatchObject({ operation: "transform", presetId: "anime", preservationMode: "faithful" });
+    expect(snapshot.providerMask.data.every((alpha) => alpha === 255)).toBe(true);
+
+    useEditorStore.getState().acceptPreview();
+    expect(useEditorStore.getState().operations[0]).toMatchObject({
+      type: "transform",
+      method: "generative",
+      parameters: { presetId: "anime", userPrompt: "warm evening light", resolvedInstruction: "Resolved anime instruction", providerRequestId: "fake-transform" },
+    });
+  });
+
   it("retries an immutable snapshot after a retryable failure", async () => {
     useEditorStore.getState().fillSelection(firstPixelContour);
     useEditorStore.getState().setEditType("remove");
     vi.mocked(requestGenerativeCandidate)
       .mockRejectedValueOnce(new GenerativeRequestError("temporary", true))
-      .mockResolvedValueOnce({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:image/png;base64,candidate", providerRequestId: "fake-3", diagnosticRequestId: "request-3", candidateAnalysis });
+      .mockResolvedValueOnce({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:image/png;base64,candidate", providerRequestId: "fake-3", diagnosticRequestId: "request-3", candidateAnalysis, resolvedInstruction: null });
     await useEditorStore.getState().requestGenerativePreview();
     const failedSnapshot = useEditorStore.getState().generativeState.snapshot!;
     expect(useEditorStore.getState().generativeState).toMatchObject({ status: "failed", retryable: true });
@@ -77,21 +113,21 @@ describe("filled selection preview and acceptance", () => {
     const retriedSnapshot = vi.mocked(requestGenerativeCandidate).mock.calls[1][0];
     expect(retriedSnapshot.inputVersion.pixels).toEqual(failedSnapshot.inputVersion.pixels);
     expect(retriedSnapshot.providerMask.data).toEqual(failedSnapshot.providerMask.data);
-    expect(retriedSnapshot.boundaryPolicy).toBe("review");
+    expect(retriedSnapshot.operation === "transform" ? null : retriedSnapshot.boundaryPolicy).toBe("review");
     expect(useEditorStore.getState().generativeState.status).toBe("preview");
   });
 
   it("ignores a response superseded by a newer request", async () => {
     useEditorStore.getState().fillSelection(firstPixelContour);
     useEditorStore.getState().setEditType("remove");
-    const resolvers: Array<(value: { pixels: Uint8ClampedArray; dataUrl: string; providerRequestId: string; diagnosticRequestId: string; candidateAnalysis: typeof candidateAnalysis }) => void> = [];
+    const resolvers: Array<(value: { pixels: Uint8ClampedArray; dataUrl: string; providerRequestId: string; diagnosticRequestId: string; candidateAnalysis: typeof candidateAnalysis; resolvedInstruction: null }) => void> = [];
     vi.mocked(requestGenerativeCandidate).mockImplementation(() => new Promise((resolve) => resolvers.push(resolve)));
     const older = useEditorStore.getState().requestGenerativePreview();
     const newer = useEditorStore.getState().requestGenerativePreview();
-    resolvers[0]({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:old", providerRequestId: "old", diagnosticRequestId: "request-old", candidateAnalysis });
+    resolvers[0]({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:old", providerRequestId: "old", diagnosticRequestId: "request-old", candidateAnalysis, resolvedInstruction: null });
     expect(await older).toBe(false);
     expect(useEditorStore.getState().preview).toBeNull();
-    resolvers[1]({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:new", providerRequestId: "new", diagnosticRequestId: "request-new", candidateAnalysis });
+    resolvers[1]({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:new", providerRequestId: "new", diagnosticRequestId: "request-new", candidateAnalysis, resolvedInstruction: null });
     expect(await newer).toBe(true);
     const preview = useEditorStore.getState().preview;
     expect(preview?.method === "generative" ? preview.parameters.providerRequestId : null).toBe("new");

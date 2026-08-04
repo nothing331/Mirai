@@ -14,6 +14,13 @@ export function createMask(width: number, height: number): ProcessingMask {
   return { width, height, data: new Uint8ClampedArray(width * height) };
 }
 
+/** Creates a source-resolution effective mask covering every image pixel. */
+export function createFullImageMask(width: number, height: number): ProcessingMask {
+  const mask = createMask(width, height);
+  mask.data.fill(255);
+  return mask;
+}
+
 /** Rasterizes a continuous circular brush segment while clipping to image bounds. */
 export function paintMask(
   mask: ProcessingMask,
