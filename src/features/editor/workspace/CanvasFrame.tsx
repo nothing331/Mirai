@@ -6,6 +6,7 @@ import { Check, Focus, ImagePlus, LoaderCircle, SlidersHorizontal, X } from "luc
 import type { ChangeEvent } from "react";
 import { useState } from "react";
 import { useShallow } from "zustand/react/shallow";
+import { blocksReplaceReviewAcceptance } from "@/shared/edit-boundary";
 import type { CandidateAnalysis, EditBoundaryPolicy } from "@/shared/edit-boundary";
 import { getCurrentVersion, useEditorStore } from "../store";
 import type { BusyAction, ComparisonBase } from "./workspace-types";
@@ -47,6 +48,7 @@ export function CanvasFrame({ busyAction, onUpload, onAdjustTransform }: { busyA
             boundaryPolicy={state.preview.method === "generative" && state.preview.type !== "transform" ? state.preview.parameters.boundaryPolicy : null}
             candidateAnalysis={state.preview.method === "generative" ? state.preview.parameters.candidateAnalysis : null}
             transformPreview={state.preview.type === "transform"}
+            acceptanceBlocked={state.preview.method === "generative" && state.preview.type !== "transform" ? blocksReplaceReviewAcceptance(state.preview.type, state.preview.parameters.boundaryPolicy, state.preview.parameters.candidateAnalysis) : false}
             onAccept={state.acceptPreview}
             onDiscard={state.discardPreview}
             onAdjustTransform={onAdjustTransform}
@@ -95,13 +97,14 @@ function ProjectLoadingOverlay() {
 }
 
 /** Shows the immutable base and unaccepted candidate before history advances. */
-function PreviewComparison({ baseLabel, originalUrl, previewUrl, boundaryPolicy, candidateAnalysis, transformPreview, onAccept, onDiscard, onAdjustTransform }: {
+function PreviewComparison({ baseLabel, originalUrl, previewUrl, boundaryPolicy, candidateAnalysis, transformPreview, acceptanceBlocked, onAccept, onDiscard, onAdjustTransform }: {
   baseLabel: string;
   originalUrl: string;
   previewUrl: string;
   boundaryPolicy: EditBoundaryPolicy | null;
   candidateAnalysis: CandidateAnalysis | null;
   transformPreview: boolean;
+  acceptanceBlocked: boolean;
   onAccept: () => boolean;
   onDiscard: () => void;
   onAdjustTransform: () => void;
@@ -124,10 +127,13 @@ function PreviewComparison({ baseLabel, originalUrl, previewUrl, boundaryPolicy,
           <div className="relative min-h-0"><Image src={previewUrl} alt="Recolor preview" fill unoptimized className="object-contain" /></div>
         </figure>
       </div>
-      <div className="flex justify-end gap-2 pt-2 sm:pt-3">
-        {transformPreview && <button type="button" className="flex h-9 items-center gap-2 px-3 text-xs font-bold text-white/75 outline-none hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white" onClick={onAdjustTransform}><SlidersHorizontal className="size-4" />Adjust</button>}
-        <button type="button" className="flex h-9 items-center gap-2 px-3 text-xs font-bold text-white/75 outline-none hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white" onClick={onDiscard}><X className="size-4" />Discard</button>
-        <button type="button" data-testid="accept-preview" className="flex h-9 items-center gap-2 bg-acid px-3 text-xs font-bold text-ink outline-none hover:bg-white focus-visible:ring-2 focus-visible:ring-acid" onClick={onAccept}><Check className="size-4" />Accept edit</button>
+      <div className="flex flex-col gap-2 pt-2 sm:pt-3">
+        {acceptanceBlocked && <p className="bg-[#4a1f1a] px-3 py-2 font-mono text-[9px] leading-relaxed text-[#ffb5a7]" role="alert" data-testid="replace-scope-mismatch">Scope mismatch: most changes landed outside the selected target. Discard and generate again, or switch to protected mode.</p>}
+        <div className="flex justify-end gap-2">
+          {transformPreview && <button type="button" className="flex h-9 items-center gap-2 px-3 text-xs font-bold text-white/75 outline-none hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white" onClick={onAdjustTransform}><SlidersHorizontal className="size-4" />Adjust</button>}
+          <button type="button" className="flex h-9 items-center gap-2 px-3 text-xs font-bold text-white/75 outline-none hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white" onClick={onDiscard}><X className="size-4" />Discard</button>
+          <button type="button" data-testid="accept-preview" className="flex h-9 items-center gap-2 bg-acid px-3 text-xs font-bold text-ink outline-none hover:bg-white focus-visible:ring-2 focus-visible:ring-acid disabled:cursor-not-allowed disabled:bg-white/20 disabled:text-white/40" disabled={acceptanceBlocked} onClick={onAccept}><Check className="size-4" />Accept edit</button>
+        </div>
       </div>
     </div>
   );

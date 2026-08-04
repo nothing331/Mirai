@@ -54,6 +54,7 @@ describe("OpenAIImageEditProvider", () => {
     });
     expect(replacement).toContain("approximate indication of intent, not as a clipping boundary");
     expect(replacement).toContain("graphic applied flush to the selected surface");
+    expect(replacement).toContain("Preserve similar-looking and same-category subjects outside that focus");
     expect(replacement).toContain("Do not add or depict: flagpole; cloth");
     expect(replacement).toContain("avoid accidental cropping");
     const removal = buildEditInstruction("remove", "", selection, "protected");
