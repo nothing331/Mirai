@@ -109,6 +109,7 @@ export function buildEditInstruction(
   boundaryPolicy: ImageEditRequest["boundaryPolicy"],
   plan?: ImageEditRequest["plan"],
 ): string {
+  if (operation === "transform") return prompt;
   const geometry = `The user's marked focus begins at ${selection.leftPercent}% from the left and ${selection.topPercent}% from the top, and spans ${selection.widthPercent}% of the image width by ${selection.heightPercent}% of the image height.`;
   const scope = boundaryPolicy === "protected"
     ? "Treat that focus as a strict edit boundary. Keep every visible change inside it and preserve every pixel outside it exactly."

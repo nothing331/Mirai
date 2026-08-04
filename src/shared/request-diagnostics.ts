@@ -71,7 +71,7 @@ export interface RequestDiagnosticManifest {
   retryOfRequestId: string | null;
   providerRequestId: string | null;
   provider: "fake" | "openai";
-  operation: "remove" | "replace" | "restyle" | null;
+  operation: "remove" | "replace" | "restyle" | "transform" | null;
   boundaryPolicy: EditBoundaryPolicy;
   previewSource: "full-candidate" | "protected-composite" | null;
   status: RequestDiagnosticStatus;

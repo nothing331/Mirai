@@ -2,7 +2,7 @@ import type { ImageEditDiagnosticSink } from "../../shared/request-diagnostics";
 import type { EditPlan } from "../../shared/edit-plan";
 import type { EditBoundaryPolicy } from "../../shared/edit-boundary";
 
-export type GenerativeOperation = "remove" | "replace" | "restyle";
+export type GenerativeOperation = "remove" | "replace" | "restyle" | "transform";
 export type ProviderScenario = "success" | "slow" | "retryable-error" | "fatal-error";
 
 /** Provider-neutral request whose image and mask are same-size PNG byte arrays. */

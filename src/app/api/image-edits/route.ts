@@ -4,8 +4,10 @@ import { ImageProviderError } from "@/server/ai/contracts";
 import type { GenerativeOperation, ProviderScenario } from "@/server/ai/contracts";
 import { analyzeCandidate } from "@/server/ai/candidate-analysis";
 import { configuredPlannerModel, configuredProviderName, createEditIntentPlanner, createImageEditProvider, parsePositiveInteger } from "@/server/ai/provider-factory";
+import { buildTransformInstruction } from "@/server/ai/transform-instruction";
 import { startRequestDiagnostics } from "@/server/diagnostics/request-diagnostic-service";
 import type { RequestDiagnosticError } from "@/shared/request-diagnostics";
+import { isTransformPresetId, type TransformPresetId, type TransformPreservationMode } from "@/shared/transform-presets";
 
 export const runtime = "nodejs";
 
@@ -41,38 +43,71 @@ export async function POST(request: Request) {
     const boundaryPolicy = form.get("boundaryPolicy");
     const prompt = form.get("prompt");
     const scenario = form.get("scenario");
-    if (!(image instanceof File) || !(selectionMask instanceof File) || !(providerFocusMask instanceof File)) {
-      throw new RequestValidationError("Image, selection mask, and provider focus mask files are required.");
-    }
-    if (operation !== "remove" && operation !== "replace" && operation !== "restyle") {
-      throw new RequestValidationError("Choose Remove, Add / replace, or Restyle.");
+    const presetIdValue = form.get("presetId");
+    const presetVersionValue = form.get("presetVersion");
+    const preservationModeValue = form.get("preservationMode");
+    if (!(image instanceof File)) throw new RequestValidationError("A PNG source image is required.");
+    if (operation !== "remove" && operation !== "replace" && operation !== "restyle" && operation !== "transform") {
+      throw new RequestValidationError("Choose Remove, Add / replace, Restyle, or Transform.");
     }
     if (boundaryPolicy !== "review" && boundaryPolicy !== "protected") {
       throw new RequestValidationError("Choose review or protected AI edit behavior.");
     }
+    if (operation === "transform" && boundaryPolicy !== "review") throw new RequestValidationError("Transform requires complete-image review behavior.");
     if (typeof prompt !== "string") throw new RequestValidationError("Prompt is required.");
+
+    const imagePng = new Uint8Array(await image.arrayBuffer());
+    const imageMetadata = await sharp(imagePng).metadata();
+    if (!imageMetadata.width || !imageMetadata.height || imageMetadata.format !== "png") throw new RequestValidationError("The source image must be a valid PNG.");
+
+    let selectionMaskPng: Uint8Array;
+    let maskPng: Uint8Array;
+    let resolvedTransformInstruction: string | null = null;
+    let transformConfiguration: Record<string, string | number | boolean | null> = {};
+
+    if (operation === "transform") {
+      const rawPresetId = typeof presetIdValue === "string" && presetIdValue.length > 0 ? presetIdValue : null;
+      const presetVersion = typeof presetVersionValue === "string" && presetVersionValue.length > 0 ? Number.parseInt(presetVersionValue, 10) : null;
+      const preservationMode = preservationModeValue;
+      let presetId: TransformPresetId | null = null;
+      if (rawPresetId) {
+        if (!isTransformPresetId(rawPresetId)) throw new RequestValidationError("The selected transformation preset is not available.");
+        presetId = rawPresetId;
+      }
+      if (preservationMode !== "faithful" && preservationMode !== "balanced" && preservationMode !== "imaginative") throw new RequestValidationError("Choose a transformation preservation level.");
+      try {
+        resolvedTransformInstruction = buildTransformInstruction({
+          presetId,
+          presetVersion,
+          userPrompt: prompt,
+          preservationMode: preservationMode as TransformPreservationMode,
+        });
+      } catch (error) {
+        throw new RequestValidationError(error instanceof Error ? error.message : "The transformation settings are invalid.");
+      }
+      const fullMask = await sharp({
+        create: { width: imageMetadata.width, height: imageMetadata.height, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 1 } },
+      }).png().toBuffer();
+      selectionMaskPng = new Uint8Array(fullMask);
+      maskPng = new Uint8Array(fullMask);
+      transformConfiguration = { presetId, presetVersion, preservationMode };
+    } else {
+      if (!(selectionMask instanceof File) || !(providerFocusMask instanceof File)) throw new RequestValidationError("Selection and provider focus masks are required for localized edits.");
+      selectionMaskPng = new Uint8Array(await selectionMask.arrayBuffer());
+      maskPng = new Uint8Array(await providerFocusMask.arrayBuffer());
+      const [selectionMetadata, maskMetadata] = await Promise.all([sharp(selectionMaskPng).metadata(), sharp(maskPng).metadata()]);
+      if (
+        selectionMetadata.format !== "png" || maskMetadata.format !== "png"
+        || imageMetadata.width !== selectionMetadata.width || imageMetadata.height !== selectionMetadata.height
+        || imageMetadata.width !== maskMetadata.width || imageMetadata.height !== maskMetadata.height
+      ) throw new RequestValidationError("Image, selection mask, and provider focus mask must be same-size PNG files.");
+    }
 
     await diagnostics?.event("parsed", "Parsed multipart image-edit request.", {
       sourceBytes: image.size,
-      selectionMaskBytes: selectionMask.size,
-      providerFocusMaskBytes: providerFocusMask.size,
+      selectionMaskBytes: selectionMaskPng.byteLength,
+      providerFocusMaskBytes: maskPng.byteLength,
     });
-    const imagePng = new Uint8Array(await image.arrayBuffer());
-    const selectionMaskPng = new Uint8Array(await selectionMask.arrayBuffer());
-    const maskPng = new Uint8Array(await providerFocusMask.arrayBuffer());
-    const [imageMetadata, selectionMetadata, maskMetadata] = await Promise.all([
-      sharp(imagePng).metadata(),
-      sharp(selectionMaskPng).metadata(),
-      sharp(maskPng).metadata(),
-    ]);
-    if (
-      !imageMetadata.width || !imageMetadata.height
-      || imageMetadata.format !== "png" || selectionMetadata.format !== "png" || maskMetadata.format !== "png"
-      || imageMetadata.width !== selectionMetadata.width || imageMetadata.height !== selectionMetadata.height
-      || imageMetadata.width !== maskMetadata.width || imageMetadata.height !== maskMetadata.height
-    ) {
-      throw new RequestValidationError("Image, selection mask, and provider focus mask must be same-size PNG files.");
-    }
 
     await diagnostics?.requestMetadata({
       operation,
@@ -83,6 +118,7 @@ export async function POST(request: Request) {
     await diagnostics?.artifact("source-input.png", imagePng, "image/png");
     await diagnostics?.artifact("selection-mask.png", selectionMaskPng, "image/png");
     await diagnostics?.artifact("effective-mask.png", maskPng, "image/png");
+    if (operation === "transform") await diagnostics?.metadata({ configuration: transformConfiguration });
     await diagnostics?.event("validated", "Validated source-image dimensions and request parameters.", {
       width: imageMetadata.width,
       height: imageMetadata.height,
@@ -111,7 +147,7 @@ export async function POST(request: Request) {
       height: imageMetadata.height,
       operation: operation as GenerativeOperation,
       boundaryPolicy,
-      prompt,
+      prompt: resolvedTransformInstruction ?? prompt,
       plan,
       scenario: providerName === "fake" ? scenario as ProviderScenario : undefined,
     }, diagnostics ?? undefined);
@@ -148,6 +184,7 @@ export async function POST(request: Request) {
       providerRequestId: result.providerRequestId,
       candidateAnalysis,
       imageGenerationAttempted,
+      resolvedInstruction: resolvedTransformInstruction ?? undefined,
       projectId,
       requestId,
     }, 200, requestId);

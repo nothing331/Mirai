@@ -23,16 +23,22 @@ vi.mock("@/server/diagnostics/request-diagnostic-service", () => ({
 
 import { POST } from "./route";
 
-async function request(operation: "replace" | "restyle" = "replace") {
+async function request(operation: "replace" | "restyle" | "transform" = "replace") {
   const image = await sharp({ create: { width: 4, height: 3, channels: 4, background: "blue" } }).png().toBuffer();
   const mask = await sharp({ create: { width: 4, height: 3, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 1 } } }).png().toBuffer();
   const form = new FormData();
   form.set("image", new File([Uint8Array.from(image)], "image.png", { type: "image/png" }));
-  form.set("selectionMask", new File([Uint8Array.from(mask)], "selection-mask.png", { type: "image/png" }));
-  form.set("mask", new File([Uint8Array.from(mask)], "effective-mask.png", { type: "image/png" }));
+  if (operation !== "transform") {
+    form.set("selectionMask", new File([Uint8Array.from(mask)], "selection-mask.png", { type: "image/png" }));
+    form.set("mask", new File([Uint8Array.from(mask)], "effective-mask.png", { type: "image/png" }));
+  } else {
+    form.set("presetId", "anime");
+    form.set("presetVersion", "1");
+    form.set("preservationMode", "balanced");
+  }
   form.set("operation", operation);
   form.set("boundaryPolicy", "review");
-  form.set("prompt", operation === "replace" ? "add an Indian flag" : "brushed copper");
+  form.set("prompt", operation === "replace" ? "add an Indian flag" : operation === "transform" ? "warm evening light" : "brushed copper");
   form.set("scenario", "success");
   return new Request("http://localhost/api/image-edits", {
     method: "POST",
@@ -89,6 +95,26 @@ describe("image edit route orchestration", () => {
     expect(response.status).toBe(200);
     expect(mocks.plan).not.toHaveBeenCalled();
     expect(mocks.edit).toHaveBeenCalledWith(expect.objectContaining({ operation: "restyle", plan: undefined }), undefined);
+  });
+
+  it("resolves a complete-image Transform without planning or client masks", async () => {
+    const candidatePng = await sharp({ create: { width: 4, height: 3, channels: 4, background: "red" } }).png().toBuffer();
+    mocks.edit.mockResolvedValue({ candidatePng, providerRequestId: "image-transform" });
+
+    const response = await POST(await request("transform"));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(mocks.plan).not.toHaveBeenCalled();
+    expect(mocks.edit).toHaveBeenCalledWith(expect.objectContaining({
+      operation: "transform",
+      boundaryPolicy: "review",
+      prompt: expect.stringContaining("hand-drawn cinematic anime illustration"),
+      plan: undefined,
+    }), undefined);
+    const providerRequest = mocks.edit.mock.calls[0][0];
+    expect(await sharp(providerRequest.maskPng).metadata()).toMatchObject({ width: 4, height: 3, format: "png" });
+    expect(payload).toMatchObject({ providerRequestId: "image-transform", resolvedInstruction: expect.stringContaining("warm evening light") });
   });
 
   it("preserves a valid provider proposal when candidate analysis fails", async () => {

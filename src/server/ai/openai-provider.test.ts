@@ -59,5 +59,6 @@ describe("OpenAIImageEditProvider", () => {
     const removal = buildEditInstruction("remove", "", selection, "protected");
     expect(removal).toContain("Do not leave a blur, smudge, repeated texture, halo, outline, patch, or ghost");
     expect(removal).toContain("strict edit boundary");
+    expect(buildEditInstruction("transform", "Transform the complete image as graphite.", selection, "review")).toBe("Transform the complete image as graphite.");
   });
 });
