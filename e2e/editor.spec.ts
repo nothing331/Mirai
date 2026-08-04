@@ -35,7 +35,7 @@ test("upload, select, and recolor an image", async ({ page }) => {
   const initialX = Number(await canvas.getAttribute("data-viewport-x"));
   const initialY = Number(await canvas.getAttribute("data-viewport-y"));
   await expect(page.getByRole("heading", { name: "Mirai" })).toBeVisible();
-  await expect(page.getByLabel("Brush size")).toHaveCount(0);
+  await expect(page.getByLabel("Size")).toHaveCount(0);
   await page.mouse.move(bounds.x + initialX + 2, bounds.y + initialY + 2);
   await page.mouse.down();
   await page.mouse.move(bounds.x + initialX + 17, bounds.y + initialY + 2, { steps: 4 });
@@ -46,15 +46,15 @@ test("upload, select, and recolor an image", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Remove selection" })).toBeVisible();
   await page.getByRole("button", { name: "Remove selection" }).click();
   await expect(page.getByRole("button", { name: "Remove selection" })).toHaveCount(0);
-  await page.getByRole("radio", { name: "Brush" }).click();
-  await expect(page.getByLabel("Brush size")).toBeVisible();
-  await expect(page.getByLabel("Edge softness")).toBeVisible();
-  await expect(canvas).toHaveClass(/tool-brush/);
+  await page.getByRole("radio", { name: "Add", exact: true }).click();
+  await expect(page.getByLabel("Size")).toBeVisible();
+  await expect(page.getByLabel("Softness")).toBeVisible();
+  await expect(canvas).toHaveClass(/tool-lasso/);
   await page.getByRole("button", { name: "Collapse inspector" }).click();
   await expect(page.getByTestId("editor-inspector")).toHaveCount(0);
   await page.getByRole("button", { name: "Open inspector" }).click();
   await expect(page.getByTestId("editor-inspector")).toBeVisible();
-  await expect(page.getByRole("radio", { name: "Brush" })).toBeChecked();
+  await expect(page.getByRole("radio", { name: "Lasso" })).toBeChecked();
   await canvas.locator("canvas").first().click({ position: { x: initialX + 10, y: initialY + 10 } });
   await page.getByTestId("apply-edit").click();
   await expect(page.getByTestId("preview-comparison")).toBeVisible();
@@ -77,8 +77,8 @@ test("upload, select, and recolor an image", async ({ page }) => {
   await page.mouse.wheel(0, -300);
   await expect(canvas).not.toHaveAttribute("data-viewport-scale", scaleBefore!);
   await page.getByRole("radio", { name: "Pan" }).click();
-  await expect(page.getByLabel("Brush size")).toHaveCount(0);
-  await expect(page.getByLabel("Edge softness")).toHaveCount(0);
+  await expect(page.getByLabel("Size")).toHaveCount(0);
+  await expect(page.getByLabel("Softness")).toHaveCount(0);
   const viewportBefore = await canvas.getAttribute("data-viewport-x");
   const panBounds = await canvas.boundingBox();
   if (!panBounds) throw new Error("Editor canvas has no visible bounds.");
@@ -117,6 +117,45 @@ test("upload, select, and recolor an image", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Diagnostics" })).toBeEnabled();
 });
 
+test("brush paint is draft-only until applied and eraser only clears that draft", async ({ page }) => {
+  await page.goto("/");
+  await uploadTestImage(page);
+  const canvas = page.getByTestId("editor-canvas");
+  const imageX = Number(await canvas.getAttribute("data-viewport-x"));
+  const imageY = Number(await canvas.getAttribute("data-viewport-y"));
+
+  await page.getByRole("radio", { name: "Brush" }).click();
+  await expect(page.getByRole("heading", { name: "Brush" })).toBeVisible();
+  await expect(page.getByTestId("generate-edit")).toHaveCount(0);
+  await page.getByLabel("Brush color").fill("#ff0000");
+  await canvas.locator("canvas").first().click({ position: { x: imageX + 5, y: imageY + 5 } });
+  await expect(page.getByText("1 pending gesture")).toBeVisible();
+  await expect(page.getByText("0 accepted edits", { exact: true })).toBeVisible();
+
+  await page.getByRole("radio", { name: "Eraser" }).click();
+  await expect(page.getByText(/original image is never erased/i)).toBeVisible();
+  await canvas.locator("canvas").first().click({ position: { x: imageX + 5, y: imageY + 5 } });
+  await expect(page.getByText("2 pending gestures")).toBeVisible();
+  await page.getByTestId("discard-paint").click();
+  await expect(page.getByText("0 accepted edits", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("apply-paint")).toBeDisabled();
+
+  await page.getByRole("radio", { name: "Brush" }).click();
+  await canvas.locator("canvas").first().click({ position: { x: imageX + 5, y: imageY + 5 } });
+  await canvas.locator("canvas").first().click({ position: { x: imageX + 15, y: imageY + 15 } });
+  await page.getByTestId("apply-paint").click();
+  await expect(page.getByText("1 accepted edit", { exact: true })).toBeVisible();
+  await page.getByTestId("undo").click();
+  await expect(page.getByTestId("redo")).toBeEnabled();
+
+  await page.getByRole("radio", { name: "Pan" }).click();
+  await expect(page.getByTestId("editor-inspector")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Open inspector" })).toHaveCount(0);
+  await page.keyboard.press("l");
+  await expect(page.getByRole("radio", { name: "Lasso" })).toBeChecked();
+  await expect(page.getByTestId("editor-inspector")).toBeVisible();
+});
+
 test("fake provider supports generative success, retry, and failure states", async ({ page }) => {
   await page.goto("/");
   await uploadTestImage(page);
@@ -124,8 +163,8 @@ test("fake provider supports generative success, retry, and failure states", asy
   await expect(canvas).toBeVisible();
   const imageX = Number(await canvas.getAttribute("data-viewport-x"));
   const imageY = Number(await canvas.getAttribute("data-viewport-y"));
-  await page.getByRole("radio", { name: "Brush" }).click();
-  await expect(canvas).toHaveClass(/tool-brush/);
+  await page.getByRole("radio", { name: "Add", exact: true }).click();
+  await expect(canvas).toHaveClass(/tool-lasso/);
   await canvas.locator("canvas").first().click({ position: { x: imageX + 10, y: imageY + 10 } });
 
   await page.getByRole("radio", { name: "Remove" }).click();

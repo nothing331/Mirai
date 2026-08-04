@@ -1,7 +1,7 @@
 "use client";
 
 import type { ChangeEvent } from "react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { DiagnosticsDrawer } from "@/features/diagnostics/DiagnosticsDrawer";
 import { cn } from "@/lib/utils";
@@ -15,6 +15,7 @@ import { ToolRail } from "./workspace/ToolRail";
 import { WorkspaceHeader } from "./workspace/WorkspaceHeader";
 import { deriveWorkspacePhase } from "./workspace/workspace-phase";
 import type { BusyAction, ExportFormat, ProviderCapabilities } from "./workspace/workspace-types";
+import type { Tool } from "./types";
 
 /** Coordinates project I/O and provider authorization around the editor's domain-owned state. */
 export function EditorWorkspace() {
@@ -45,6 +46,11 @@ export function EditorWorkspace() {
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(() => !useEditorStore.getState().currentVersionId);
   const phase = deriveWorkspacePhase({ hasImage: Boolean(editor.currentVersionId), preview: editor.preview, generativeState: editor.generativeState, selectionMask: editor.selectionMask });
+
+  const selectTool = useCallback((tool: Tool) => {
+    editor.setTool(tool);
+    setInspectorCollapsed(tool === "pan");
+  }, [editor]);
 
   useEffect(() => {
     fetch("/api/image-edits").then((response) => response.json()).then((capabilities: ProviderCapabilities) => setProviderCapabilities(capabilities)).catch(() => setProviderCapabilities(null));
@@ -83,12 +89,12 @@ export function EditorWorkspace() {
       const tool = ({ l: "lasso", b: "brush", e: "eraser", h: "pan" } as const)[event.key.toLowerCase() as "l" | "b" | "e" | "h"];
       if (tool) {
         event.preventDefault();
-        editor.setTool(tool);
+        selectTool(tool);
       }
     };
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
-  }, [editor]);
+  }, [editor, selectTool]);
 
   /** Confirms and counts a paid request before allowing it to reach the real provider. */
   function authorizeProviderRequest(label: string): boolean {
@@ -181,7 +187,7 @@ export function EditorWorkspace() {
           inspectorCollapsed ? "md:grid-cols-[48px_minmax(0,1fr)]" : "md:grid-cols-[256px_minmax(0,1fr)]",
         )}>
           <aside className={cn("order-2 grid min-h-0 overflow-hidden bg-paper md:order-1 md:grid-cols-[48px_minmax(0,1fr)]", !inspectorCollapsed && "max-md:grid-rows-[48px_minmax(0,42dvh)]")} aria-label="Editor tools">
-            <ToolRail collapsed={inspectorCollapsed} disabled={!editor.currentVersionId} onToggleInspector={() => setInspectorCollapsed((current) => !current)} />
+            <ToolRail collapsed={inspectorCollapsed} disabled={!editor.currentVersionId || phase === "processing" || phase === "preview"} onSelectTool={selectTool} onToggleInspector={() => setInspectorCollapsed((current) => !current)} />
             {!inspectorCollapsed && (
               <div className="min-h-0 border-t border-line md:border-t-0" data-testid="editor-inspector">
                 <EditorInspector
