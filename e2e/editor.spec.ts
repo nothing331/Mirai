@@ -1,15 +1,6 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
-test("upload, select, and recolor an image", async ({ page }) => {
-  const projectName = `Playwright project ${Date.now()}`;
-  await page.goto("/");
-  const canvasRegion = page.getByRole("region", { name: "Image canvas" });
-  const inspector = page.getByRole("complementary", { name: "Editor tools" });
-  const canvasTop = (await canvasRegion.boundingBox())?.y;
-  await inspector.evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
-  expect((await canvasRegion.boundingBox())?.y).toBe(canvasTop);
-  expect(await page.evaluate(() => ({ pageY: window.scrollY, viewportLocked: document.documentElement.scrollHeight === document.documentElement.clientHeight }))).toEqual({ pageY: 0, viewportLocked: true });
-  await inspector.evaluate((element) => element.scrollTo({ top: 0 }));
+async function uploadTestImage(page: Page) {
   await page.getByTestId("file-input").evaluate(async (input: HTMLInputElement) => {
     const canvas = document.createElement("canvas");
     canvas.width = 20;
@@ -23,6 +14,19 @@ test("upload, select, and recolor an image", async ({ page }) => {
     input.files = transfer.files;
     input.dispatchEvent(new Event("change", { bubbles: true }));
   });
+}
+
+test("upload, select, and recolor an image", async ({ page }) => {
+  const projectName = `Playwright project ${Date.now()}`;
+  await page.goto("/");
+  const canvasRegion = page.getByRole("region", { name: "Image canvas" });
+  const inspector = page.getByRole("complementary", { name: "Editor tools" });
+  const canvasTop = (await canvasRegion.boundingBox())?.y;
+  await inspector.evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
+  expect((await canvasRegion.boundingBox())?.y).toBe(canvasTop);
+  expect(await page.evaluate(() => ({ pageY: window.scrollY, viewportLocked: document.documentElement.scrollHeight === document.documentElement.clientHeight }))).toEqual({ pageY: 0, viewportLocked: true });
+  await inspector.evaluate((element) => element.scrollTo({ top: 0 }));
+  await uploadTestImage(page);
   await expect(page.getByText("20 × 20px")).toBeVisible();
   const canvas = page.getByTestId("editor-canvas");
   await expect(canvas).toBeVisible();
@@ -30,8 +34,27 @@ test("upload, select, and recolor an image", async ({ page }) => {
   if (!bounds) throw new Error("Editor canvas has no visible bounds.");
   const initialX = Number(await canvas.getAttribute("data-viewport-x"));
   const initialY = Number(await canvas.getAttribute("data-viewport-y"));
+  await expect(page.getByRole("heading", { name: "Mirai" })).toBeVisible();
+  await expect(page.getByLabel("Brush size")).toHaveCount(0);
+  await page.mouse.move(bounds.x + initialX + 2, bounds.y + initialY + 2);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + initialX + 17, bounds.y + initialY + 2, { steps: 4 });
+  await page.mouse.move(bounds.x + initialX + 17, bounds.y + initialY + 17, { steps: 4 });
+  await page.mouse.move(bounds.x + initialX + 2, bounds.y + initialY + 17, { steps: 4 });
+  await page.mouse.move(bounds.x + initialX + 2, bounds.y + initialY + 2, { steps: 4 });
+  await page.mouse.up();
+  await expect(page.getByRole("button", { name: "Remove selection" })).toBeVisible();
+  await page.getByRole("button", { name: "Remove selection" }).click();
+  await expect(page.getByRole("button", { name: "Remove selection" })).toHaveCount(0);
   await page.getByRole("radio", { name: "Brush" }).click();
+  await expect(page.getByLabel("Brush size")).toBeVisible();
+  await expect(page.getByLabel("Edge softness")).toBeVisible();
   await expect(canvas).toHaveClass(/tool-brush/);
+  await page.getByRole("button", { name: "Collapse inspector" }).click();
+  await expect(page.getByTestId("editor-inspector")).toHaveCount(0);
+  await page.getByRole("button", { name: "Open inspector" }).click();
+  await expect(page.getByTestId("editor-inspector")).toBeVisible();
+  await expect(page.getByRole("radio", { name: "Brush" })).toBeChecked();
   await canvas.locator("canvas").first().click({ position: { x: initialX + 10, y: initialY + 10 } });
   await page.getByTestId("apply-edit").click();
   await expect(page.getByTestId("preview-comparison")).toBeVisible();
@@ -54,6 +77,8 @@ test("upload, select, and recolor an image", async ({ page }) => {
   await page.mouse.wheel(0, -300);
   await expect(canvas).not.toHaveAttribute("data-viewport-scale", scaleBefore!);
   await page.getByRole("radio", { name: "Pan" }).click();
+  await expect(page.getByLabel("Brush size")).toHaveCount(0);
+  await expect(page.getByLabel("Edge softness")).toHaveCount(0);
   const viewportBefore = await canvas.getAttribute("data-viewport-x");
   const panBounds = await canvas.boundingBox();
   if (!panBounds) throw new Error("Editor canvas has no visible bounds.");
@@ -65,6 +90,8 @@ test("upload, select, and recolor an image", async ({ page }) => {
 
   await page.getByRole("button", { name: "Reset view" }).click();
   await expect(canvas).toHaveAttribute("data-viewport-scale", "1");
+  await page.keyboard.press("l");
+  await expect(page.getByRole("radio", { name: "Lasso" })).toBeChecked();
 
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export current image" }).click();
@@ -77,26 +104,22 @@ test("upload, select, and recolor an image", async ({ page }) => {
   expect(png.readUInt32BE(20)).toBe(20);
 
   await page.reload();
+  await page.route(/\/api\/projects\/[^/]+$/, async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    await route.continue();
+  });
   await page.getByLabel("Open saved project").selectOption({ label: projectName });
+  await expect(page.getByTestId("project-loading-overlay")).toBeVisible();
+  await expect(page.getByText("Opening project")).toBeVisible();
+  await expect(page.getByText("Opening…", { exact: true })).toHaveCount(0);
   await expect(page.getByText("1 accepted edit", { exact: true })).toBeVisible();
   await expect(page.getByText(/20.+20px/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Diagnostics" })).toBeEnabled();
 });
 
 test("fake provider supports generative success, retry, and failure states", async ({ page }) => {
   await page.goto("/");
-  await page.getByTestId("file-input").evaluate(async (input: HTMLInputElement) => {
-    const source = document.createElement("canvas");
-    source.width = 20;
-    source.height = 20;
-    const context = source.getContext("2d")!;
-    context.fillStyle = "#2878b8";
-    context.fillRect(0, 0, 20, 20);
-    const blob = await new Promise<Blob>((resolve) => source.toBlob((value) => resolve(value!), "image/png"));
-    const transfer = new DataTransfer();
-    transfer.items.add(new File([blob], "sample.png", { type: "image/png" }));
-    input.files = transfer.files;
-    input.dispatchEvent(new Event("change", { bubbles: true }));
-  });
+  await uploadTestImage(page);
   const canvas = page.getByTestId("editor-canvas");
   await expect(canvas).toBeVisible();
   const imageX = Number(await canvas.getAttribute("data-viewport-x"));
@@ -106,6 +129,7 @@ test("fake provider supports generative success, retry, and failure states", asy
   await canvas.locator("canvas").first().click({ position: { x: imageX + 10, y: imageY + 10 } });
 
   await page.getByRole("radio", { name: "Remove" }).click();
+  await page.getByText("Advanced", { exact: true }).click();
   await expect(page.getByLabel("AI edit behavior")).toHaveValue("review");
   await expect(page.getByText("Fake provider scenario")).toBeVisible();
   const scenario = page.getByLabel("Fake provider scenario");
@@ -178,4 +202,19 @@ test("fake provider supports generative success, retry, and failure states", asy
   await expect(reopenedDiagnostics.getByRole("button", { name: `Request ID ${olderRequestId}` })).toBeVisible();
   await reopenedDiagnostics.getByRole("button", { name: "Refresh" }).click();
   await expect(reopenedDiagnostics.getByRole("button", { name: `Request ID ${olderRequestId}` })).toBeVisible();
+});
+
+test("compact workspace preserves edit configuration when the inspector collapses", async ({ page }) => {
+  await page.setViewportSize({ width: 393, height: 727 });
+  await page.goto("/");
+  await uploadTestImage(page);
+  await page.getByRole("radio", { name: "Add / replace" }).click();
+  await page.getByLabel("Edit instruction", { exact: true }).fill("add a small paper lantern");
+  await page.getByRole("button", { name: "Collapse inspector" }).click();
+  await expect(page.getByTestId("editor-inspector")).toHaveCount(0);
+  await expect(page.getByTestId("editor-canvas")).toBeVisible();
+  await page.getByRole("button", { name: "Open inspector" }).click();
+  await expect(page.getByLabel("Edit instruction", { exact: true })).toHaveValue("add a small paper lantern");
+  await expect(page.getByRole("radio", { name: "Add / replace" })).toBeChecked();
+  await expect.poll(() => page.evaluate(() => ({ vertical: document.documentElement.scrollHeight === document.documentElement.clientHeight, horizontal: document.documentElement.scrollWidth === document.documentElement.clientWidth }))).toEqual({ vertical: true, horizontal: true });
 });

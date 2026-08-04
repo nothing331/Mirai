@@ -4,9 +4,9 @@ import Konva from "konva";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Group, Image as KonvaImage, Layer, Line, Rect, Stage } from "react-konva";
 import { displayToSource, fitViewport } from "./coordinates";
-import { SelectionCommentPopover } from "./SelectionCommentPopover";
 import { useEditorStore } from "./store";
 import type { ImageVersion, ProcessingMask, SourcePoint, Viewport } from "./types";
+import { SelectionChip } from "./workspace/SelectionChip";
 
 /** Loads a version data URL into the DOM image object consumed by Konva. */
 function useHtmlImage(source: string) {
@@ -43,7 +43,7 @@ function makeMaskCanvas(mask: ProcessingMask, color: string): HTMLCanvasElement 
 }
 
 /** Draws closed contours and refines their filled source-resolution mask. */
-export function EditorCanvas({ version, mask, color, viewResetKey, onPreview }: { version: ImageVersion; mask: ProcessingMask; color: string; viewResetKey: number; onPreview: () => void }) {
+export function EditorCanvas({ version, mask, color, viewResetKey }: { version: ImageVersion; mask: ProcessingMask; color: string; viewResetKey: number }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const drawingRef = useRef(false);
   const lastPointRef = useRef<SourcePoint | null>(null);
@@ -153,7 +153,7 @@ export function EditorCanvas({ version, mask, color, viewResetKey, onPreview }: 
           </Group>
         </Layer>
       </Stage>
-      {selectionId && <SelectionCommentPopover mask={mask} viewport={viewport} canvasSize={size} selectionId={selectionId} onPreview={onPreview} />}
+      {selectionId && <SelectionChip mask={mask} viewport={viewport} canvasSize={size} />}
     </div>
   );
 }
