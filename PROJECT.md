@@ -12,7 +12,7 @@ The project initially targets normal users rather than professional design workf
 
 ## Current state
 
-The editor supports PNG/JPEG upload, pan and zoom, conservatively cleaned closed-contour selection, brush and eraser refinement, on-canvas edit instructions, deterministic recoloring, and generative Remove/Replace/Restyle operations. Replace requests use a low-cost multimodal intent planner to turn short instructions into scene-aware structured plans before image generation. Generative editing uses provider-neutral server boundaries, deterministic fake implementations by default, and optional OpenAI adapters. The complete normalized provider candidate is the default review preview; an explicit protected mode retains exact mask compositing. Each request creates a reproducible diagnostic bundle with its timeline, masks, provider calls, prompts, plan, candidate-scope analysis, change map, and final preview. Accepted operations, versions, and masks form linear immutable history with undo/redo, and projects can be saved to local SQLite metadata plus immutable filesystem assets, reopened, and exported as PNG or JPEG.
+The editor supports PNG/JPEG upload, pan and zoom, conservatively cleaned Lasso selection with internal Add/Subtract refinement, direct non-destructive paint drafts, draft-only erasing, deterministic selection recoloring, and generative Remove/Replace/Restyle operations. The image-first workspace gives each canvas tool one job: Lasso owns selection edits and generation, Brush paints, Eraser corrects pending paint, and Hand pans without an inspector. Replace requests use a low-cost multimodal intent planner to turn short instructions into scene-aware structured plans before image generation. Generative editing uses provider-neutral server boundaries, deterministic fake implementations by default, and optional OpenAI adapters. The complete normalized provider candidate is the default review preview; an explicit protected mode retains exact mask compositing. Each request creates a reproducible diagnostic bundle with its timeline, masks, provider calls, prompts, plan, candidate-scope analysis, change map, and final preview. Accepted operations, versions, and masks form linear immutable history with undo/redo, and projects can be saved to local SQLite metadata plus immutable filesystem assets, reopened, and exported as PNG or JPEG.
 
 ## v0.1 scope
 
@@ -26,8 +26,9 @@ Upload → canvas → manual mask → local recolor → generative edit → hist
 
 - PNG and JPEG upload
 - image canvas with pan and zoom
-- conservative closed-contour cleanup with diagnostics, brush, and eraser mask refinement
-- on-canvas edit instructions synchronized with the inspector
+- conservative closed-contour cleanup with diagnostics and Lasso-owned Add/Subtract refinement
+- direct color painting with draft-only erasing and one-step Apply/Discard
+- compact on-canvas selection feedback with edit configuration in the contextual inspector
 - deterministic recoloring
 - localized generative removal or restyling
 - complete generative candidate review with optional exact protected masking
@@ -71,7 +72,7 @@ src/
 ├── app/                  Pages and API entry points
 ├── features/
 │   ├── canvas/           Rendering and coordinate conversion
-│   ├── masking/          Brush, eraser, and mask serialization
+│   ├── masking/          Lasso selection refinement and mask serialization
 │   ├── editing/          Operations, routing, and orchestration
 │   ├── diagnostics/      Request evidence browser and API client
 │   ├── history/          Versions, undo, redo, and compare
@@ -97,6 +98,12 @@ Directories should be introduced with their first real behavior. Do not create s
 - Diagnostics observe the edit pipeline but cannot create operations, versions, or provider requests.
 - Diagnostic failures never change the result or status of the edit they observe.
 - Shared code remains small and cannot become a generic utility directory.
+
+### Workspace UI boundary
+
+The workspace shell separates global commands, direct canvas tools, contextual configuration, and supporting drawers. Presentation phases are derived from authoritative editor state rather than persisted separately: empty, ready, selected, processing, preview, and failed. The tool rail owns interaction-mode selection; Lasso owns selection editing and every generative action; Brush and Eraser share a temporary paint session; Hand owns navigation and automatically removes the inspector. Canvas components own display interaction and review, while header commands own project-wide actions. Changing tools cannot commit history or call a provider.
+
+Future UI features enter through an explicit canvas tool, inspector panel, global command, dialog, or drawer. Use TypeScript unions and exhaustive rendering instead of a generalized plugin registry until independently developed extensions require one. Image-wide operations may eventually require an explicit image-versus-selection operation scope, but that persisted contract should evolve with the first real image-wide feature rather than speculatively.
 
 ## Core concepts
 
@@ -182,6 +189,7 @@ Preview
 | Operation | Engine |
 |---|---|
 | Recolor | Local processing |
+| Direct paint | Local source-space compositing |
 | Brightness or contrast | Local processing |
 | Blur | Local processing |
 | Background isolation | Segmentation and compositing |
@@ -191,6 +199,8 @@ Preview
 | Generate missing content | Generative image editing |
 
 For v0.1, the user selects the operation explicitly. Replace performs contextual interpretation inside that chosen operation; automatic classification between operations remains deferred.
+
+Direct paint uses a short-lived RGBA layer rather than a selection mask. Brush adds color, Eraser removes only that layer's alpha, and Apply flattens all pending gestures into one local operation and immutable version. This keeps undo meaningful and prevents Eraser from destroying accepted image pixels, at the cost of not retaining editable paint strokes after Apply.
 
 ### Generative input
 
@@ -258,7 +268,7 @@ Undo and redo move the current-version pointer. Arbitrary operation toggling and
 
 ## Implementation plan
 
-Build order, milestone status, concrete deliverables, and verification gates live in [LOCAL_DEVELOPMENT_PLAN.md](./LOCAL_DEVELOPMENT_PLAN.md). This separation keeps architecture stable while allowing the execution plan to change frequently.
+Implemented feature behavior, ownership, and verification references live in [FEATURE_CONTEXT.md](./FEATURE_CONTEXT.md). Build order, milestone status, concrete deliverables, and verification gates live in [LOCAL_DEVELOPMENT_PLAN.md](./LOCAL_DEVELOPMENT_PLAN.md). This separation keeps architecture stable while allowing feature context and the execution plan to change at their appropriate rates.
 
 ## Current decisions
 
@@ -320,6 +330,6 @@ The release is complete when a user can:
 
 ## Documentation growth policy
 
-Keep `PROJECT.md` as the project-wide product and architecture reference. Keep `LOCAL_DEVELOPMENT_PLAN.md` as the execution reference because it changes at a different rate. Introduce additional documents only when a section has independent ownership or becomes too large for targeted reading.
+Keep `PROJECT.md` as the project-wide product and architecture reference. Keep `FEATURE_CONTEXT.md` as the implemented-feature reference and update it with every affected feature pull request. Keep `LOCAL_DEVELOPMENT_PLAN.md` as the execution reference because it changes at a different rate. Introduce other documents only when a section has independent ownership or becomes too large for targeted reading.
 
 If a generated code graph is added later, treat it as a derived navigation index. Source code and tests remain authoritative for implemented behavior; this file remains authoritative for planned behavior.

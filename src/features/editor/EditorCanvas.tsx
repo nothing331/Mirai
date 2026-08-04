@@ -4,9 +4,9 @@ import Konva from "konva";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Group, Image as KonvaImage, Layer, Line, Rect, Stage } from "react-konva";
 import { displayToSource, fitViewport } from "./coordinates";
-import { SelectionCommentPopover } from "./SelectionCommentPopover";
 import { useEditorStore } from "./store";
-import type { ImageVersion, ProcessingMask, SourcePoint, Viewport } from "./types";
+import type { ImageVersion, PaintOverlay, ProcessingMask, SourcePoint, Viewport } from "./types";
+import { SelectionChip } from "./workspace/SelectionChip";
 
 /** Loads a version data URL into the DOM image object consumed by Konva. */
 function useHtmlImage(source: string) {
@@ -42,18 +42,30 @@ function makeMaskCanvas(mask: ProcessingMask, color: string): HTMLCanvasElement 
   return canvas;
 }
 
+function makePaintCanvas(overlay: PaintOverlay | null): HTMLCanvasElement | null {
+  if (!overlay) return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = overlay.width;
+  canvas.height = overlay.height;
+  canvas.getContext("2d")?.putImageData(new ImageData(new Uint8ClampedArray(overlay.pixels), overlay.width, overlay.height), 0, 0);
+  return canvas;
+}
+
 /** Draws closed contours and refines their filled source-resolution mask. */
-export function EditorCanvas({ version, mask, color, viewResetKey, onPreview }: { version: ImageVersion; mask: ProcessingMask; color: string; viewResetKey: number; onPreview: () => void }) {
+export function EditorCanvas({ version, mask, color, viewResetKey }: { version: ImageVersion; mask: ProcessingMask; color: string; viewResetKey: number }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const drawingRef = useRef(false);
   const lastPointRef = useRef<SourcePoint | null>(null);
   const lassoPointsRef = useRef<SourcePoint[]>([]);
+  const paintPointsRef = useRef<SourcePoint[]>([]);
   const panStartRef = useRef<{ pointer: SourcePoint; viewport: Viewport } | null>(null);
   const [lassoPoints, setLassoPoints] = useState<SourcePoint[]>([]);
+  const [paintPoints, setPaintPoints] = useState<SourcePoint[]>([]);
   const [size, setSize] = useState({ width: 800, height: 600 });
   const image = useHtmlImage(version.dataUrl);
   const maskCanvas = useMemo(() => makeMaskCanvas(mask, color), [mask, color]);
-  const { viewport, tool, selectionId, lassoVisualization, setViewport, fillSelection, paintSelection } = useEditorStore();
+  const { viewport, tool, selectionMode, selectionId, lassoVisualization, paintSession, brushSize, setViewport, fillSelection, refineSelection, applyPaintStroke } = useEditorStore();
+  const paintCanvas = useMemo(() => makePaintCanvas(paintSession?.overlay ?? null), [paintSession?.overlay]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -87,11 +99,14 @@ export function EditorCanvas({ version, mask, color, viewResetKey, onPreview }: 
     if (!point) return;
     drawingRef.current = true;
     lastPointRef.current = point;
-    if (tool === "lasso") {
+    if (tool === "lasso" && selectionMode === "draw") {
       lassoPointsRef.current = [point];
       setLassoPoints([point]);
+    } else if (tool === "lasso") {
+      refineSelection(point, point);
     } else {
-      paintSelection(point, point);
+      paintPointsRef.current = [point];
+      setPaintPoints([point]);
     }
   }
 
@@ -106,25 +121,31 @@ export function EditorCanvas({ version, mask, color, viewResetKey, onPreview }: 
     if (!drawingRef.current) return;
     const point = sourcePoint(event.target.getStage()!);
     if (!point || !lastPointRef.current) return;
-    if (tool === "lasso") {
+    if (tool === "lasso" && selectionMode === "draw") {
       const previous = lassoPointsRef.current.at(-1)!;
       if (Math.hypot(point.x - previous.x, point.y - previous.y) >= 2.5 / Math.max(0.05, viewport.scale)) {
         lassoPointsRef.current = [...lassoPointsRef.current, point];
         setLassoPoints(lassoPointsRef.current);
       }
+    } else if (tool === "lasso") {
+      refineSelection(lastPointRef.current, point);
     } else {
-      paintSelection(lastPointRef.current, point);
+      paintPointsRef.current = [...paintPointsRef.current, point];
+      setPaintPoints(paintPointsRef.current);
     }
     lastPointRef.current = point;
   }
 
   /** Automatically closes and fills a completed lasso before clearing gesture state. */
   function endDraw() {
-    if (drawingRef.current && tool === "lasso" && lassoPointsRef.current.length >= 3) fillSelection(lassoPointsRef.current, viewport.scale);
+    if (drawingRef.current && tool === "lasso" && selectionMode === "draw" && lassoPointsRef.current.length >= 3) fillSelection(lassoPointsRef.current, viewport.scale);
+    if (drawingRef.current && (tool === "brush" || tool === "eraser")) applyPaintStroke(paintPointsRef.current, tool === "eraser");
     drawingRef.current = false;
     lastPointRef.current = null;
     lassoPointsRef.current = [];
+    paintPointsRef.current = [];
     setLassoPoints([]);
+    setPaintPoints([]);
     panStartRef.current = null;
   }
 
@@ -146,14 +167,17 @@ export function EditorCanvas({ version, mask, color, viewResetKey, onPreview }: 
           <Group x={viewport.x} y={viewport.y} scaleX={viewport.scale} scaleY={viewport.scale}>
             <Rect width={version.width} height={version.height} fill="rgba(0,0,0,0.001)" />
             {image && <KonvaImage image={image} width={version.width} height={version.height} listening={false} />}
-            <KonvaImage image={maskCanvas} width={version.width} height={version.height} listening={false} />
-            {lassoVisualization?.showRawContour && lassoVisualization.rawPoints.length > 1 && <Line points={lassoVisualization.rawPoints.flatMap((point) => [point.x, point.y])} closed stroke="#ffad33" strokeWidth={Math.max(1, 1.5 / viewport.scale)} dash={[4 / viewport.scale, 4 / viewport.scale]} opacity={0.9} listening={false} />}
-            {lassoVisualization && lassoVisualization.cleanedPoints.length > 1 && <Line points={lassoVisualization.cleanedPoints.flatMap((point) => [point.x, point.y])} closed stroke="#d8f441" strokeWidth={Math.max(1, 1.25 / viewport.scale)} opacity={0.9} listening={false} />}
-            {lassoPoints.length > 1 && <Line points={lassoPoints.flatMap((point) => [point.x, point.y])} stroke={color} strokeWidth={Math.max(1, 2 / viewport.scale)} dash={[6 / viewport.scale, 4 / viewport.scale]} listening={false} />}
+            {paintCanvas && <KonvaImage image={paintCanvas} width={version.width} height={version.height} listening={false} />}
+            {tool === "lasso" && <KonvaImage image={maskCanvas} width={version.width} height={version.height} listening={false} />}
+            {tool === "lasso" && lassoVisualization?.showRawContour && lassoVisualization.rawPoints.length > 1 && <Line points={lassoVisualization.rawPoints.flatMap((point) => [point.x, point.y])} closed stroke="#ffad33" strokeWidth={Math.max(1, 1.5 / viewport.scale)} dash={[4 / viewport.scale, 4 / viewport.scale]} opacity={0.9} listening={false} />}
+            {tool === "lasso" && lassoVisualization && lassoVisualization.cleanedPoints.length > 1 && <Line points={lassoVisualization.cleanedPoints.flatMap((point) => [point.x, point.y])} closed stroke="#d8f441" strokeWidth={Math.max(1, 1.25 / viewport.scale)} opacity={0.9} listening={false} />}
+            {tool === "lasso" && lassoPoints.length > 1 && <Line points={lassoPoints.flatMap((point) => [point.x, point.y])} stroke={color} strokeWidth={Math.max(1, 2 / viewport.scale)} dash={[6 / viewport.scale, 4 / viewport.scale]} listening={false} />}
+            {tool === "brush" && paintPoints.length > 1 && <Line points={paintPoints.flatMap((point) => [point.x, point.y])} stroke={color} strokeWidth={brushSize} lineCap="round" lineJoin="round" opacity={0.85} listening={false} />}
+            {tool === "eraser" && paintPoints.length > 1 && <Line points={paintPoints.flatMap((point) => [point.x, point.y])} stroke="#ffffff" strokeWidth={brushSize} lineCap="round" lineJoin="round" dash={[4 / viewport.scale, 3 / viewport.scale]} opacity={0.7} listening={false} />}
           </Group>
         </Layer>
       </Stage>
-      {selectionId && <SelectionCommentPopover mask={mask} viewport={viewport} canvasSize={size} selectionId={selectionId} onPreview={onPreview} />}
+      {tool === "lasso" && selectionId && <SelectionChip mask={mask} viewport={viewport} canvasSize={size} />}
     </div>
   );
 }
