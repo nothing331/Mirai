@@ -4,7 +4,7 @@ An image editor where users select a region, apply a localized AI or determinist
 
 ## Status
 
-The finished v0.1 editor supports closed-region selection, local recoloring, generative Remove/Restyle previews, immutable linear undo/redo, original/previous comparison, durable local projects, and original-resolution PNG/JPEG export. A deterministic fake provider is enabled by default, so the complete workflow runs without an API key.
+The finished v0.1 editor supports Lasso-based selection and AI editing, direct color painting with draft-only erasing, local recoloring, generative Remove/Replace/Restyle previews, immutable linear undo/redo, durable local projects, diagnostics, and original-resolution PNG/JPEG export. A deterministic fake provider is enabled by default, so the complete workflow runs without an API key.
 
 Documentation:
 
@@ -21,7 +21,7 @@ npm run dev
 
 Open `http://localhost:3000`. Saved project metadata is stored in `.local-edit/projects.sqlite`; immutable accepted images and masks are stored under `.local-edit/assets/`. Add `.local-edit/` to backups if you want to retain local projects between machines.
 
-Mirai keeps direct canvas tools in the left rail and shows only the active workflow in the adjacent inspector. Use `L` for Lasso, `B` for Brush, `E` for Eraser, `H` for Pan, and `Cmd/Ctrl + Z` or `Cmd/Ctrl + Shift + Z` for undo and redo. The inspector can collapse without changing the selection, prompt, preview, or accepted history.
+Mirai keeps direct canvas tools in the left rail and shows only the active workflow in the adjacent inspector. Lasso owns Draw/Add/Subtract selection and all selection-based generation. Brush paints a temporary color layer; Eraser removes only that pending paint; Apply records the complete paint session as one reversible edit. Apply before saving or reloading because pending paint is not persisted. Hand pans the image and hides the inspector because it has no settings. Use `L`, `B`, `E`, and `H` for those tools, and `Cmd/Ctrl + Z` or `Cmd/Ctrl + Shift + Z` for undo and redo.
 
 ## Request diagnostics
 

@@ -46,9 +46,9 @@ Keep entries focused on current behavior. Link to project-wide decisions instead
 
 ## Selection creation and refinement
 
-**Outcome.** A user can outline a focus region, receive conservative closed-contour cleanup, refine the mask with brush or eraser tools, clear it from the canvas, and configure its edit in a predictable inspector.
+**Outcome.** A user can outline a focus region, receive conservative closed-contour cleanup, refine the mask with Add or Subtract inside Lasso, clear it from the canvas, and configure a deterministic or generative selection edit in one inspector.
 
-**Working flow.** Source-space pointer samples form selection geometry. Cleanup removes unreliable contour artifacts and reports diagnostics. The contour interior, brush additions, and eraser removals are rasterized into a full-resolution mask matching the current input image. A compact canvas chip identifies and clears the selection; the contextual inspector owns edit type, prompt, color, and preview controls.
+**Working flow.** Source-space pointer samples form selection geometry. Cleanup removes unreliable contour artifacts and reports diagnostics. Draw creates a closed region; Add and Subtract rasterize source-space refinement strokes into the same full-resolution mask. A compact canvas chip identifies and clears the selection; the Lasso inspector owns edit type, prompt, color, and preview controls.
 
 **Ownership and rules.** Geometry and cleanup modules handle deterministic selection logic; mask modules own rasterization; UI components collect and display interaction. Persisted selection hints and processing masks always use source-image coordinates and input dimensions. Empty masks are rejected before processing.
 
@@ -56,11 +56,23 @@ Keep entries focused on current behavior. Link to project-wide decisions instead
 
 **Code and verification.** `src/features/editor/selection-geometry.ts`, `src/features/editor/mask-cleanup.ts`, `src/features/editor/mask.ts`, `src/features/editor/workspace/SelectionChip.tsx`, `src/features/editor/workspace/EditorInspector.tsx`, their adjacent tests, and `e2e/editor.spec.ts`.
 
+## Direct paint and draft erasing
+
+**Outcome.** A user can paint colors directly onto the image, correct that pending paint with Eraser, and apply several gestures as one reversible edit.
+
+**Working flow.** Brush gestures rasterize into a source-resolution RGBA draft layer above the current accepted version. Eraser removes alpha only from that draft layer, so it cannot remove original or previously accepted pixels. The canvas shows the draft immediately. Apply composites it onto the current version and routes one local `paint` operation through shared acceptance; Discard removes the draft without changing history. Selection and generative actions are blocked until pending paint is applied or discarded.
+
+**Ownership and rules.** The editor store owns the temporary paint session and history transition; paint helpers own deterministic rasterization and compositing; canvas and inspector components collect gestures and expose Apply/Discard. Tool changes preserve pending paint, while image replacement and history navigation clear it. Paint outside the draft alpha remains byte-identical to its input.
+
+**Failures and limits.** Paint is a flattened edit rather than a persistent layer. An applied paint operation can be undone as a whole, but its individual strokes cannot be edited afterward. Applying an entirely erased draft creates no operation or version. Pending paint is temporary browser state and is not included when a project is saved or reopened.
+
+**Code and verification.** `src/features/editor/paint.ts`, `src/features/editor/store.ts`, `src/features/editor/EditorCanvas.tsx`, `src/features/editor/workspace/EditorInspector.tsx`, adjacent unit tests, and `e2e/editor.spec.ts`.
+
 ## Image-first workspace shell
 
 **Outcome.** A user can operate Mirai as an image editor rather than a numbered form: direct tools remain in a compact rail, the active workflow occupies one contextual inspector, global commands stay in the header, and the canvas remains the visual anchor.
 
-**Working flow.** The shell derives empty, ready, selected, processing, preview, and failed phases from editor state. Those phases change inspector content and canvas review affordances without creating a second workflow state. The inspector can collapse without losing the active tool, selection, prompt, preview, or history. Desktop uses a rail plus inspector, while narrow viewports place the rail and inspector beneath the canvas without page scrolling.
+**Working flow.** The shell derives empty, ready, selected, processing, preview, and failed phases from editor state. Lasso exposes selection and AI/local selection operations, Brush and Eraser expose only paint controls, and Hand pans with the inspector automatically collapsed. The inspector can otherwise collapse without losing the active tool, selection, paint draft, prompt, preview, or history. Desktop uses a rail plus inspector, while narrow viewports place the rail and inspector beneath the canvas without page scrolling.
 
 **Ownership and rules.** Workspace components own presentation and invoke existing store actions. `EditorWorkspace` retains project I/O and paid-provider authorization so relocated or future UI entry points cannot bypass identity restoration, confirmation, or request limits. Feature additions should use an explicit tool, inspector panel, command, dialog, or drawer; they must not append unrelated permanent sections or write history directly.
 
