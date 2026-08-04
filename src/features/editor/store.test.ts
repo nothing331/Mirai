@@ -30,11 +30,21 @@ const candidateAnalysis = {
   classification: "candidate-within-selection" as const,
   warnings: ["changes-touch-selection-boundary" as const],
 };
+const replaceScopeMismatchAnalysis = {
+  ...candidateAnalysis,
+  changedPixels: 3,
+  changedPixelRatio: 1,
+  changedOutsideSelectionPixels: 2,
+  changedOutsideSelectionRatio: 1,
+  classification: "replace-scope-mismatch" as const,
+  warnings: ["changes-outside-selection" as const, "replace-scope-mismatch" as const],
+};
 
 describe("filled selection preview and acceptance", () => {
   beforeEach(() => {
     vi.mocked(requestGenerativeCandidate).mockReset();
     useEditorStore.getState().loadImage(original);
+    useEditorStore.getState().setBoundaryPolicy("review");
     useEditorStore.getState().setBrushSize(1);
     useEditorStore.getState().setMaskSoftness(0);
   });
@@ -62,6 +72,35 @@ describe("filled selection preview and acceptance", () => {
     expect(state.versions).toHaveLength(2);
     expect(state.operations).toHaveLength(1);
     expect(state.operations[0]).toMatchObject({ type: "restyle", method: "generative", parameters: { prompt: "brushed copper", providerRequestId: "fake-2", diagnosticRequestId: "request-2", boundaryPolicy: "review", candidateAnalysis } });
+  });
+
+  it("blocks a review-mode Replace scope mismatch without advancing history", async () => {
+    useEditorStore.getState().fillSelection(firstPixelContour);
+    useEditorStore.getState().setEditType("replace");
+    useEditorStore.getState().setPrompt("replace the selected strawberry with an orange");
+    vi.mocked(requestGenerativeCandidate).mockResolvedValue({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:image/png;base64,candidate", providerRequestId: "fake-scope", diagnosticRequestId: "request-scope", candidateAnalysis: replaceScopeMismatchAnalysis });
+
+    await useEditorStore.getState().requestGenerativePreview();
+
+    expect(useEditorStore.getState().acceptPreview()).toBe(false);
+    expect(useEditorStore.getState().preview).not.toBeNull();
+    expect(useEditorStore.getState().versions).toHaveLength(1);
+    expect(useEditorStore.getState().operations).toHaveLength(0);
+    expect(useEditorStore.getState().error).toContain("changed too much outside");
+  });
+
+  it("allows a protected Replace composite even when its raw candidate has a scope mismatch", async () => {
+    useEditorStore.getState().fillSelection(firstPixelContour);
+    useEditorStore.getState().setEditType("replace");
+    useEditorStore.getState().setPrompt("replace the selected strawberry with an orange");
+    useEditorStore.getState().setBoundaryPolicy("protected");
+    vi.mocked(requestGenerativeCandidate).mockResolvedValue({ pixels: new Uint8ClampedArray(original.pixels), dataUrl: "data:image/png;base64,candidate", providerRequestId: "fake-protected", diagnosticRequestId: "request-protected", candidateAnalysis: replaceScopeMismatchAnalysis });
+
+    await useEditorStore.getState().requestGenerativePreview();
+
+    expect(useEditorStore.getState().acceptPreview()).toBe(true);
+    expect(useEditorStore.getState().versions).toHaveLength(2);
+    expect(useEditorStore.getState().operations).toHaveLength(1);
   });
 
   it("retries an immutable snapshot after a retryable failure", async () => {

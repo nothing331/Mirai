@@ -118,7 +118,7 @@ export function buildEditInstruction(
   }
   if (operation === "replace") {
     const plannedContext = plan ? buildPlannedContext(plan) : "Infer the most physically plausible representation from the selected surface and surrounding scene.";
-    const edgeConstraint = selection.touchesImageEdge ? "The focus touches an image edge; avoid accidental cropping unless the instruction asks for it." : "Keep the requested content complete and visually balanced in the surrounding composition.";
+    const edgeConstraint = selection.touchesImageEdge ? "The focus touches an image edge; avoid accidental cropping unless the instruction asks for it." : "Keep the selected replacement complete while retaining the position, scale, and composition of unselected content.";
     return `Add or replace content according to this instruction: ${prompt}. ${plannedContext} ${edgeConstraint} Integrate it convincingly with correct perspective, scale, contact, occlusion, lighting, reflections, and shadows appropriate to its planned representation. ${geometry} ${scope} Introduce no unrelated objects or text.`;
   }
   return `Restyle the existing selected content according to this instruction: ${prompt}. Keep the selected subject's identity, silhouette, geometry, scale, and position. Change only the requested appearance or material; do not add a new subject or crop existing parts. Match the scene's lighting and perspective. ${geometry} ${scope}`;
