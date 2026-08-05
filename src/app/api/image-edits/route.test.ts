@@ -6,6 +6,8 @@ import * as candidateAnalysis from "@/server/ai/candidate-analysis";
 
 const mocks = vi.hoisted(() => ({
   plan: vi.fn(),
+  transformPlan: vi.fn(),
+  validateTransform: vi.fn(),
   edit: vi.fn(),
 }));
 
@@ -13,6 +15,8 @@ vi.mock("@/server/ai/provider-factory", () => ({
   configuredPlannerModel: () => "fake-intent-planner",
   configuredProviderName: () => "fake",
   createEditIntentPlanner: () => ({ plan: mocks.plan }),
+  createTransformPlanner: () => ({ plan: mocks.transformPlan }),
+  createTransformValidator: () => ({ validate: mocks.validateTransform }),
   createImageEditProvider: () => ({ edit: mocks.edit }),
   parsePositiveInteger: (_value: string | undefined, fallback: number) => fallback,
 }));
@@ -50,7 +54,11 @@ async function request(operation: "replace" | "restyle" | "transform" = "replace
 describe("image edit route orchestration", () => {
   beforeEach(() => {
     mocks.plan.mockReset();
+    mocks.transformPlan.mockReset();
+    mocks.validateTransform.mockReset();
     mocks.edit.mockReset();
+    mocks.transformPlan.mockResolvedValue({ plan: transformPlan(), providerRequestId: "transform-planner-1" });
+    mocks.validateTransform.mockResolvedValue({ assessment: passingAssessment(), providerRequestId: "transform-validator-1" });
   });
 
   it("plans Replace before starting the image editor", async () => {
@@ -97,7 +105,7 @@ describe("image edit route orchestration", () => {
     expect(mocks.edit).toHaveBeenCalledWith(expect.objectContaining({ operation: "restyle", plan: undefined }), undefined);
   });
 
-  it("resolves a complete-image Transform without planning or client masks", async () => {
+  it("plans, generates, and validates a complete-image Transform without a provider mask", async () => {
     const candidatePng = await sharp({ create: { width: 4, height: 3, channels: 4, background: "red" } }).png().toBuffer();
     mocks.edit.mockResolvedValue({ candidatePng, providerRequestId: "image-transform" });
 
@@ -106,6 +114,7 @@ describe("image edit route orchestration", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.plan).not.toHaveBeenCalled();
+    expect(mocks.transformPlan).toHaveBeenCalledTimes(1);
     expect(mocks.edit).toHaveBeenCalledWith(expect.objectContaining({
       operation: "transform",
       boundaryPolicy: "review",
@@ -113,7 +122,35 @@ describe("image edit route orchestration", () => {
       plan: undefined,
       maskPng: undefined,
     }), undefined);
-    expect(payload).toMatchObject({ providerRequestId: "image-transform", resolvedInstruction: expect.stringContaining("warm evening light") });
+    expect(mocks.validateTransform).toHaveBeenCalledWith(expect.objectContaining({ preservationMode: "balanced", plan: transformPlan() }), undefined);
+    expect(mocks.transformPlan.mock.invocationCallOrder[0]).toBeLessThan(mocks.edit.mock.invocationCallOrder[0]);
+    expect(mocks.edit.mock.invocationCallOrder[0]).toBeLessThan(mocks.validateTransform.mock.invocationCallOrder[0]);
+    expect(payload).toMatchObject({ providerRequestId: "image-transform", resolvedInstruction: expect.stringContaining("rocket"), transformFidelityAssessment: { verdict: "pass" } });
+  });
+
+  it("stops Transform before image generation when source planning fails", async () => {
+    mocks.transformPlan.mockRejectedValue(new ImageProviderError("transform planner unavailable", true));
+
+    const response = await POST(await request("transform"));
+    const payload = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(mocks.edit).not.toHaveBeenCalled();
+    expect(mocks.validateTransform).not.toHaveBeenCalled();
+    expect(payload).toMatchObject({ retryable: true, imageGenerationAttempted: false });
+  });
+
+  it("preserves a Transform candidate but fails closed when semantic validation is unavailable", async () => {
+    const candidatePng = await sharp({ create: { width: 4, height: 3, channels: 4, background: "red" } }).png().toBuffer();
+    mocks.edit.mockResolvedValue({ candidatePng, providerRequestId: "image-transform" });
+    mocks.validateTransform.mockRejectedValue(new ImageProviderError("validator unavailable", true));
+
+    const response = await POST(await request("transform"));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(Buffer.from(payload.candidateBase64, "base64")).toEqual(candidatePng);
+    expect(payload.transformFidelityAssessment).toMatchObject({ verdict: "block", validationAvailable: false });
   });
 
   it("preserves a valid provider proposal when candidate analysis fails", async () => {
@@ -136,3 +173,28 @@ describe("image edit route orchestration", () => {
     }
   });
 });
+
+function transformPlan() {
+  return {
+    sourceSummary: "A rocket launches through a blue sky",
+    primarySubjects: [{ description: "rocket", count: 1, position: "diagonally across the frame", poseOrGeometry: "rising orientation", identityCues: ["engines"] }],
+    composition: { framing: "landscape", cameraAngle: "low angle", spatialRelationships: ["exhaust trails behind"], backgroundStructure: ["blue sky"] },
+    mustPreserve: ["rocket silhouette"],
+    prohibitedChanges: ["unrelated subjects"],
+    confidence: "high" as const,
+  };
+}
+
+function passingAssessment() {
+  return {
+    verdict: "pass" as const,
+    subjectPreservation: 1,
+    compositionPreservation: 1,
+    primarySubjectsMissing: [],
+    unrelatedSubjectsAdded: [],
+    compositionChanges: [],
+    explanation: "Source semantics were retained.",
+    confidence: "high" as const,
+    validationAvailable: true,
+  };
+}

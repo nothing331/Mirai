@@ -3,10 +3,11 @@ import sharp from "sharp";
 import { ImageProviderError } from "@/server/ai/contracts";
 import type { GenerativeOperation, ProviderScenario } from "@/server/ai/contracts";
 import { analyzeCandidate } from "@/server/ai/candidate-analysis";
-import { configuredPlannerModel, configuredProviderName, createEditIntentPlanner, createImageEditProvider, parsePositiveInteger } from "@/server/ai/provider-factory";
-import { buildTransformInstruction } from "@/server/ai/transform-instruction";
+import { configuredPlannerModel, configuredProviderName, createEditIntentPlanner, createImageEditProvider, createTransformPlanner, createTransformValidator, parsePositiveInteger } from "@/server/ai/provider-factory";
+import { buildTransformInstruction, type TransformInstructionInput } from "@/server/ai/transform-instruction";
 import { startRequestDiagnostics } from "@/server/diagnostics/request-diagnostic-service";
 import type { RequestDiagnosticError } from "@/shared/request-diagnostics";
+import { unavailableTransformFidelityAssessment } from "@/shared/transform-fidelity";
 import { isTransformPresetId, type TransformPresetId, type TransformPreservationMode } from "@/shared/transform-presets";
 
 export const runtime = "nodejs";
@@ -63,6 +64,7 @@ export async function POST(request: Request) {
     let selectionMaskPng: Uint8Array;
     let maskPng: Uint8Array;
     let resolvedTransformInstruction: string | null = null;
+    let transformSettings: TransformInstructionInput | null = null;
     let transformConfiguration: Record<string, string | number | boolean | null> = {};
 
     if (operation === "transform") {
@@ -76,12 +78,13 @@ export async function POST(request: Request) {
       }
       if (preservationMode !== "faithful" && preservationMode !== "balanced" && preservationMode !== "imaginative") throw new RequestValidationError("Choose a transformation preservation level.");
       try {
-        resolvedTransformInstruction = buildTransformInstruction({
+        transformSettings = {
           presetId,
           presetVersion,
           userPrompt: prompt,
           preservationMode: preservationMode as TransformPreservationMode,
-        });
+        };
+        resolvedTransformInstruction = buildTransformInstruction(transformSettings);
       } catch (error) {
         throw new RequestValidationError(error instanceof Error ? error.message : "The transformation settings are invalid.");
       }
@@ -138,6 +141,18 @@ export async function POST(request: Request) {
         confidence: plan.confidence,
       });
     }
+    const transformPlan = operation === "transform" ? (await createTransformPlanner().plan({
+      imagePng,
+      width: imageMetadata.width,
+      height: imageMetadata.height,
+    }, diagnostics ?? undefined)).plan : undefined;
+    if (transformPlan && transformSettings) {
+      resolvedTransformInstruction = buildTransformInstruction({ ...transformSettings, plan: transformPlan });
+      await diagnostics?.event("final-instruction", "Constructed the Transform instruction from the source preservation plan.", {
+        confidence: transformPlan.confidence,
+        primarySubjectCount: transformPlan.primarySubjects.length,
+      });
+    }
 
     imageGenerationAttempted = true;
     const result = await createImageEditProvider().edit({
@@ -175,6 +190,27 @@ export async function POST(request: Request) {
       });
     }
     await diagnostics?.artifact("candidate-analysis.json", new TextEncoder().encode(JSON.stringify(candidateAnalysis, null, 2)), "application/json");
+    let transformFidelityAssessment = null;
+    if (operation === "transform" && transformPlan && transformSettings) {
+      try {
+        transformFidelityAssessment = (await createTransformValidator().validate({
+          sourcePng: imagePng,
+          candidatePng: result.candidatePng,
+          width: imageMetadata.width,
+          height: imageMetadata.height,
+          plan: transformPlan,
+          preservationMode: transformSettings.preservationMode,
+          changedPixelRatio: candidateAnalysis.changedPixelRatio,
+        }, diagnostics ?? undefined)).assessment;
+      } catch (validationError) {
+        transformFidelityAssessment = unavailableTransformFidelityAssessment();
+        await diagnostics?.event("transform-validator-unavailable", "Semantic fidelity validation was unavailable; the complete candidate remains reviewable but fails closed in Faithful and Balanced modes.", {
+          error: validationError instanceof Error ? validationError.message : "Unknown validation error",
+        });
+        await diagnostics?.artifact("transform-assessment.json", new TextEncoder().encode(JSON.stringify(transformFidelityAssessment, null, 2)), "application/json");
+        await diagnostics?.metadata({ transformFidelityAssessment });
+      }
+    }
     await diagnostics?.metadata({
       candidateAnalysis,
       previewSource: boundaryPolicy === "protected" ? "protected-composite" : "full-candidate",
@@ -184,6 +220,7 @@ export async function POST(request: Request) {
       candidateBase64: Buffer.from(result.candidatePng).toString("base64"),
       providerRequestId: result.providerRequestId,
       candidateAnalysis,
+      transformFidelityAssessment,
       imageGenerationAttempted,
       resolvedInstruction: resolvedTransformInstruction ?? undefined,
       projectId,
