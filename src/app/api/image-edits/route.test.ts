@@ -111,9 +111,8 @@ describe("image edit route orchestration", () => {
       boundaryPolicy: "review",
       prompt: expect.stringContaining("hand-drawn cinematic anime illustration"),
       plan: undefined,
+      maskPng: undefined,
     }), undefined);
-    const providerRequest = mocks.edit.mock.calls[0][0];
-    expect(await sharp(providerRequest.maskPng).metadata()).toMatchObject({ width: 4, height: 3, format: "png" });
     expect(payload).toMatchObject({ providerRequestId: "image-transform", resolvedInstruction: expect.stringContaining("warm evening light") });
   });
 

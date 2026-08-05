@@ -106,7 +106,7 @@ export async function POST(request: Request) {
     await diagnostics?.event("parsed", "Parsed multipart image-edit request.", {
       sourceBytes: image.size,
       selectionMaskBytes: selectionMaskPng.byteLength,
-      providerFocusMaskBytes: maskPng.byteLength,
+      providerFocusMaskBytes: operation === "transform" ? null : maskPng.byteLength,
     });
 
     await diagnostics?.requestMetadata({
@@ -142,7 +142,7 @@ export async function POST(request: Request) {
     imageGenerationAttempted = true;
     const result = await createImageEditProvider().edit({
       imagePng,
-      maskPng,
+      maskPng: operation === "transform" ? undefined : maskPng,
       width: imageMetadata.width,
       height: imageMetadata.height,
       operation: operation as GenerativeOperation,

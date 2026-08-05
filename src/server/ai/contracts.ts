@@ -5,10 +5,10 @@ import type { EditBoundaryPolicy } from "../../shared/edit-boundary";
 export type GenerativeOperation = "remove" | "replace" | "restyle" | "transform";
 export type ProviderScenario = "success" | "slow" | "retryable-error" | "fatal-error";
 
-/** Provider-neutral request whose image and mask are same-size PNG byte arrays. */
+/** Provider-neutral request. Localized edits require a same-size mask; Transform intentionally omits it. */
 export interface ImageEditRequest {
   imagePng: Uint8Array;
-  maskPng: Uint8Array;
+  maskPng?: Uint8Array;
   width: number;
   height: number;
   operation: GenerativeOperation;
