@@ -1,10 +1,12 @@
 import { getTransformPreset, type TransformPresetId, type TransformPreservationMode } from "@/shared/transform-presets";
+import type { TransformPlan } from "@/shared/transform-fidelity";
 
 export interface TransformInstructionInput {
   presetId: TransformPresetId | null;
   presetVersion: number | null;
   userPrompt: string;
   preservationMode: TransformPreservationMode;
+  plan?: TransformPlan;
 }
 
 const preservationInstructions: Record<TransformPreservationMode, string> = {
@@ -26,11 +28,31 @@ export function buildTransformInstruction(input: TransformInstructionInput): str
   const refinement = userPrompt ? `Additional creative direction: ${userPrompt}.` : "";
 
   return [
-    "Transform the complete input image into one cohesive finished image.",
+    "Perform a style transformation of the attached input image, not a new scene generation. The attached image is the sole source of subjects, objects, composition, and environment.",
+    input.plan ? buildTransformPreservationContext(input.plan) : "Do not replace the source scene with a different subject, setting, or composition.",
     presetInstruction,
     preservationInstructions[input.preservationMode],
     refinement,
     "Keep the original aspect ratio and return a complete edge-to-edge image. Do not add borders or crop existing subjects accidentally.",
+  ].filter(Boolean).join(" ");
+}
+
+/** Converts the vision plan into explicit source-content locks for image generation. */
+export function buildTransformPreservationContext(plan: TransformPlan): string {
+  const subjects = plan.primarySubjects.map((subject) => [
+    `${subject.count} × ${subject.description}`,
+    `positioned ${subject.position}`,
+    `with ${subject.poseOrGeometry}`,
+    subject.identityCues.length ? `identified by ${subject.identityCues.join(", ")}` : "",
+  ].filter(Boolean).join(" ")).join("; ");
+  return [
+    `Source scene: ${plan.sourceSummary}.`,
+    subjects ? `Primary subjects that must remain: ${subjects}.` : "",
+    `Preserve the framing (${plan.composition.framing}) and camera angle (${plan.composition.cameraAngle}).`,
+    plan.composition.spatialRelationships.length ? `Preserve these spatial relationships: ${plan.composition.spatialRelationships.join("; ")}.` : "",
+    plan.composition.backgroundStructure.length ? `Preserve this background structure: ${plan.composition.backgroundStructure.join("; ")}.` : "",
+    plan.mustPreserve.length ? `Mandatory preservation constraints: ${plan.mustPreserve.join("; ")}.` : "",
+    plan.prohibitedChanges.length ? `Prohibited changes: ${plan.prohibitedChanges.join("; ")}.` : "",
   ].filter(Boolean).join(" ");
 }
 
