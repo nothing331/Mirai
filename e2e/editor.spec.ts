@@ -165,6 +165,7 @@ test("Transform works without a selection for local and generative presets", asy
   const transform = page.getByRole("dialog", { name: "Transform the visual language" });
   await expect(transform).toBeVisible();
   await expect(transform.getByText("5 recipes + custom")).toBeVisible();
+  await expect(transform.getByRole("radio", { name: "Faithful" })).toBeChecked();
   await transform.getByRole("radio", { name: /Monochrome/ }).click();
   await expect(transform.getByText(/no model call/i)).toBeVisible();
   await transform.getByTestId("generate-transform").click();

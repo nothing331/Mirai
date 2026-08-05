@@ -1,6 +1,7 @@
 import { compositeCandidate } from "./composite";
 import { decodeImage, pixelsToDataUrl } from "./image-data";
 import type { CandidateAnalysis, EditBoundaryPolicy } from "@/shared/edit-boundary";
+import type { TransformFidelityAssessment } from "@/shared/transform-fidelity";
 import type { GenerativeRequestSnapshot, ProcessingMask } from "./types";
 
 interface GenerativeCandidate {
@@ -10,6 +11,7 @@ interface GenerativeCandidate {
   diagnosticRequestId: string;
   candidateAnalysis: CandidateAnalysis;
   resolvedInstruction: string | null;
+  transformFidelityAssessment?: TransformFidelityAssessment | null;
 }
 
 export class GenerativeRequestError extends Error {
@@ -57,6 +59,7 @@ export async function requestGenerativeCandidate(snapshot: GenerativeRequestSnap
     imageGenerationAttempted?: boolean;
     candidateAnalysis?: CandidateAnalysis;
     resolvedInstruction?: string;
+    transformFidelityAssessment?: TransformFidelityAssessment | null;
   };
   const responseRequestId = payload.requestId ?? response.headers.get("x-request-id") ?? snapshot.requestId;
   if (!response.ok || !payload.candidateBase64 || !payload.providerRequestId || !payload.candidateAnalysis) {
@@ -86,6 +89,7 @@ export async function requestGenerativeCandidate(snapshot: GenerativeRequestSnap
     diagnosticRequestId: responseRequestId,
     candidateAnalysis: payload.candidateAnalysis,
     resolvedInstruction: payload.resolvedInstruction ?? null,
+    transformFidelityAssessment: payload.transformFidelityAssessment ?? null,
   };
 }
 

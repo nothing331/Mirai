@@ -39,6 +39,17 @@ const replaceScopeMismatchAnalysis = {
   classification: "replace-scope-mismatch" as const,
   warnings: ["changes-outside-selection" as const, "replace-scope-mismatch" as const],
 };
+const passingTransformAssessment = {
+  verdict: "pass" as const,
+  subjectPreservation: 1,
+  compositionPreservation: 1,
+  primarySubjectsMissing: [],
+  unrelatedSubjectsAdded: [],
+  compositionChanges: [],
+  explanation: "Source semantics were retained.",
+  confidence: "high" as const,
+  validationAvailable: true,
+};
 
 describe("filled selection preview and acceptance", () => {
   beforeEach(() => {
@@ -95,6 +106,7 @@ describe("filled selection preview and acceptance", () => {
       diagnosticRequestId: "request-transform",
       candidateAnalysis,
       resolvedInstruction: "Resolved anime instruction",
+      transformFidelityAssessment: passingTransformAssessment,
     });
 
     expect(await useEditorStore.getState().requestTransformPreview({ presetId: "anime", presetVersion: 1, userPrompt: "warm evening light", preservationMode: "faithful" })).toBe(true);
@@ -108,6 +120,34 @@ describe("filled selection preview and acceptance", () => {
       method: "generative",
       parameters: { presetId: "anime", userPrompt: "warm evening light", resolvedInstruction: "Resolved anime instruction", providerRequestId: "fake-transform" },
     });
+  });
+
+  it("preserves but blocks a Faithful Transform candidate with semantic drift", async () => {
+    vi.mocked(requestGenerativeCandidate).mockResolvedValue({
+      pixels: new Uint8ClampedArray(original.pixels),
+      dataUrl: "data:image/png;base64,transform-drift",
+      providerRequestId: "fake-transform-drift",
+      diagnosticRequestId: "request-transform-drift",
+      candidateAnalysis,
+      resolvedInstruction: "Resolved anime instruction",
+      transformFidelityAssessment: {
+        ...passingTransformAssessment,
+        verdict: "block",
+        subjectPreservation: 0,
+        compositionPreservation: 0,
+        primarySubjectsMissing: ["rocket"],
+        unrelatedSubjectsAdded: ["person"],
+        explanation: "The source rocket was replaced by an unrelated person.",
+      },
+    });
+
+    await useEditorStore.getState().requestTransformPreview({ presetId: "anime", presetVersion: 1, userPrompt: "", preservationMode: "faithful" });
+
+    expect(useEditorStore.getState().preview).not.toBeNull();
+    expect(useEditorStore.getState().acceptPreview()).toBe(false);
+    expect(useEditorStore.getState().versions).toHaveLength(1);
+    expect(useEditorStore.getState().operations).toHaveLength(0);
+    expect(useEditorStore.getState().error).toContain("did not preserve");
   });
 
   it("blocks a review-mode Replace scope mismatch without advancing history", async () => {

@@ -101,14 +101,18 @@ export function EditorWorkspace() {
   }, [editor, selectTool]);
 
   /** Confirms and counts a paid request before allowing it to reach the real provider. */
-  function authorizeProviderRequest(label: string, usesPlanner: boolean): boolean {
+  function authorizeProviderRequest(label: string, pipeline: "direct" | "replace-planned" | "transform-validated"): boolean {
     if (providerCapabilities?.provider !== "openai") return true;
     if (realRequestsUsed >= providerCapabilities.maxRealRequestsPerSession) {
       editor.setError(`The session limit of ${providerCapabilities.maxRealRequestsPerSession} real API requests has been reached.`);
       return false;
     }
-    const requestDescription = usesPlanner ? "context planning and, if planning succeeds, one paid OpenAI image request" : "one paid OpenAI image request without a planner call";
-    const plannerDescription = usesPlanner ? `Planner: ${providerCapabilities.plannerModel}\n` : "";
+    const requestDescription = pipeline === "transform-validated"
+      ? "source planning, one paid OpenAI image request, and semantic fidelity validation"
+      : pipeline === "replace-planned"
+        ? "context planning and, if planning succeeds, one paid OpenAI image request"
+        : "one paid OpenAI image request without a planner call";
+    const plannerDescription = pipeline === "direct" ? "" : `Vision model: ${providerCapabilities.plannerModel}\n`;
     const confirmed = window.confirm(`${label} will run ${requestDescription}.\n\n${plannerDescription}Image model: ${providerCapabilities.imageModel}\nQuality: ${providerCapabilities.quality}\nMaximum input edge: ${providerCapabilities.maxInputEdge}px\nSession usage after confirmation: ${realRequestsUsed + 1}/${providerCapabilities.maxRealRequestsPerSession}`);
     if (confirmed) {
       const nextUsage = realRequestsUsed + 1;
@@ -124,18 +128,19 @@ export function EditorWorkspace() {
       return;
     }
     const ready = editor.selectionMask && maskHasSelection(editor.selectionMask) && (editor.editType === "remove" || editor.prompt.trim().length > 0);
-    if (!ready || authorizeProviderRequest("Generate preview", editor.editType === "replace")) await editor.requestGenerativePreview();
+    if (!ready || authorizeProviderRequest("Generate preview", editor.editType === "replace" ? "replace-planned" : "direct")) await editor.requestGenerativePreview();
   }
 
   async function handleRetryPreview(): Promise<boolean> {
-    const usesPlanner = editor.generativeState.snapshot?.operation === "replace";
-    if (!authorizeProviderRequest("Retry preview", usesPlanner)) return false;
+    const operation = editor.generativeState.snapshot?.operation;
+    const pipeline = operation === "transform" ? "transform-validated" : operation === "replace" ? "replace-planned" : "direct";
+    if (!authorizeProviderRequest("Retry preview", pipeline)) return false;
     return editor.retryGenerativePreview();
   }
 
   async function handleTransformPreview(input: TransformInput): Promise<boolean> {
     const localMonochrome = input.presetId === "monochrome" && input.userPrompt.trim().length === 0;
-    if (!localMonochrome && !authorizeProviderRequest("Generate transformation", false)) return false;
+    if (!localMonochrome && !authorizeProviderRequest("Generate transformation", "transform-validated")) return false;
     return editor.requestTransformPreview(input);
   }
 

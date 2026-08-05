@@ -8,6 +8,7 @@ import { compositePaintOverlay, createPaintOverlay, paintOverlayMask, paintOverl
 import { recolorPixels } from "./recolor";
 import { cleanLassoContour } from "./selection-geometry";
 import { blocksReplaceReviewAcceptance } from "@/shared/edit-boundary";
+import { blocksTransformAcceptance, unavailableTransformFidelityAssessment } from "@/shared/transform-fidelity";
 import type { EditBoundaryPolicy } from "@/shared/edit-boundary";
 import type { EditOperation, EditPreview, EditType, FakeScenario, GenerativePreviewState, GenerativeRequestSnapshot, ImageVersion, LassoVisualization, MaskAsset, PaintSession, ProcessingMask, SelectionDiagnostics, SelectionMode, SourcePoint, Tool, TransformInput, Viewport } from "./types";
 
@@ -385,6 +386,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       set({ error: "This Replace proposal changed too much outside the selected target. Discard it and generate again, or use protected mode." });
       return false;
     }
+    if (preview.method === "generative" && preview.type === "transform" && blocksTransformAcceptance(preview.parameters.preservationMode, preview.parameters.transformFidelityAssessment)) {
+      set({ error: "This Transform proposal did not preserve the source subjects and composition closely enough. Discard it and generate again, or adjust the transformation settings." });
+      return false;
+    }
     const outputId = crypto.randomUUID();
     const output: ImageVersion = {
       ...input, id: outputId, parentVersionId: input.id, mediaType: "image/png",
@@ -473,6 +478,7 @@ async function executeGenerativeRequest(snapshot: GenerativeRequestSnapshot): Pr
           providerRequestId: candidate.providerRequestId,
           diagnosticRequestId: candidate.diagnosticRequestId,
           candidateAnalysis: candidate.candidateAnalysis,
+          transformFidelityAssessment: candidate.transformFidelityAssessment ?? unavailableTransformFidelityAssessment(),
         },
         mask, pixels: candidate.pixels, dataUrl: candidate.dataUrl,
       };

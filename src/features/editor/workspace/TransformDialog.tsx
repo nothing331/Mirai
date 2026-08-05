@@ -34,7 +34,7 @@ export function TransformDialog({
 }) {
   const [presetId, setPresetId] = useState<TransformPresetId | null>("anime");
   const [userPrompt, setUserPrompt] = useState("");
-  const [preservationMode, setPreservationMode] = useState<TransformPreservationMode>("balanced");
+  const [preservationMode, setPreservationMode] = useState<TransformPreservationMode>("faithful");
   const state = useEditorStore(useShallow((editor) => ({
     paintSession: editor.paintSession,
     generativeState: editor.generativeState,
@@ -141,7 +141,7 @@ export function TransformDialog({
 
         <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-line bg-[#e8e5dc] px-4 py-3 sm:px-6">
           <div className="flex items-center gap-2 font-mono text-[8px] uppercase tracking-[.1em] text-muted">
-            {localMonochrome ? <><Film className="size-3.5" /><span>Instant local conversion · no model call</span></> : <><Sparkles className="size-3.5" /><span>{providerCapabilities?.provider === "openai" ? `1 image request · ${realRequestsUsed}/${providerCapabilities.maxRealRequestsPerSession} used` : "Deterministic fake provider"}</span></>}
+            {localMonochrome ? <><Film className="size-3.5" /><span>Instant local conversion · no model call</span></> : <><Sparkles className="size-3.5" /><span>{providerCapabilities?.provider === "openai" ? `Plan + image + validation · ${realRequestsUsed}/${providerCapabilities.maxRealRequestsPerSession} image requests used` : "Deterministic fake pipeline"}</span></>}
           </div>
           <div className="flex gap-2"><button type="button" className="h-10 px-3 text-xs font-bold text-muted hover:bg-white/60 hover:text-ink" disabled={processing} onClick={onClose}>Cancel</button><button type="button" data-testid="generate-transform" className="flex h-10 min-w-40 items-center justify-center gap-2 bg-ink px-4 text-xs font-bold text-paper hover:bg-acid hover:text-ink disabled:pointer-events-none disabled:opacity-35" disabled={!ready} onClick={() => void generate()}>{processing ? <><LoaderCircle className="size-4 animate-spin" />Transforming…</> : <><WandSparkles className="size-4" />Generate preview</>}</button></div>
         </footer>

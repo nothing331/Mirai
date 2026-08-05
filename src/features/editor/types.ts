@@ -1,4 +1,5 @@
 import type { CandidateAnalysis, EditBoundaryPolicy } from "@/shared/edit-boundary";
+import type { TransformFidelityAssessment } from "@/shared/transform-fidelity";
 import type { TransformPresetId, TransformPreservationMode } from "@/shared/transform-presets";
 
 export type Tool = "lasso" | "brush" | "eraser" | "pan";
@@ -90,6 +91,7 @@ interface GenerativeTransformParameters extends TransformInput {
   providerRequestId: string;
   diagnosticRequestId: string;
   candidateAnalysis: CandidateAnalysis;
+  transformFidelityAssessment: TransformFidelityAssessment;
 }
 
 interface PreviewBase {
