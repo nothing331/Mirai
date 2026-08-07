@@ -1,6 +1,6 @@
 "use client";
 
-import { Brush, Eraser, Hand, LassoSelect, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Brush, Eraser, Hand, LassoSelect, PanelLeftClose, PanelLeftOpen, WandSparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEditorStore } from "../store";
 import type { Tool } from "../types";
@@ -12,7 +12,7 @@ const tools: Array<{ value: Tool; label: string; shortcut: string; icon: typeof 
   { value: "pan", label: "Pan", shortcut: "H", icon: Hand },
 ];
 
-export function ToolRail({ collapsed, disabled, onSelectTool, onToggleInspector }: { collapsed: boolean; disabled: boolean; onSelectTool: (tool: Tool) => void; onToggleInspector: () => void }) {
+export function ToolRail({ collapsed, disabled, transformOpen, onSelectTool, onOpenTransform, onToggleInspector }: { collapsed: boolean; disabled: boolean; transformOpen: boolean; onSelectTool: (tool: Tool) => void; onOpenTransform: () => void; onToggleInspector: () => void }) {
   const tool = useEditorStore((state) => state.tool);
   const hasPendingPaint = useEditorStore((state) => Boolean(state.paintSession));
 
@@ -39,6 +39,24 @@ export function ToolRail({ collapsed, disabled, onSelectTool, onToggleInspector 
             <span className="sr-only">{shortcut}</span>
           </button>
         ))}
+      </div>
+      <div className="border-line max-md:border-l md:w-full md:border-t md:py-1">
+        <button
+          type="button"
+          data-testid="open-transform"
+          aria-label="Transform"
+          aria-pressed={transformOpen}
+          title="Transform (T)"
+          disabled={disabled}
+          className={cn(
+            "relative grid size-11 place-items-center text-muted outline-none transition-[background-color,color,transform] hover:bg-white/70 hover:text-ink focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent disabled:pointer-events-none disabled:opacity-30 md:mx-auto",
+            transformOpen && "bg-acid text-ink hover:bg-acid hover:text-ink",
+          )}
+          onClick={onOpenTransform}
+        >
+          <WandSparkles className="size-[17px]" />
+          <span className="sr-only">T</span>
+        </button>
       </div>
       {tool !== "pan" && <button
         type="button"

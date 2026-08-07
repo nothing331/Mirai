@@ -90,6 +90,11 @@ export function EditorWorkspace() {
         return;
       }
       if (!editor.currentVersionId || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.key.toLowerCase() === "t") {
+        event.preventDefault();
+        if (phase !== "processing" && phase !== "preview") setTransformOpen(true);
+        return;
+      }
       const tool = ({ l: "lasso", b: "brush", e: "eraser", h: "pan" } as const)[event.key.toLowerCase() as "l" | "b" | "e" | "h"];
       if (tool) {
         event.preventDefault();
@@ -98,7 +103,7 @@ export function EditorWorkspace() {
     };
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
-  }, [editor, selectTool]);
+  }, [editor, phase, selectTool]);
 
   /** Confirms and counts a paid request before allowing it to reach the real provider. */
   function authorizeProviderRequest(label: string, pipeline: "direct" | "replace-planned" | "transform-validated"): boolean {
@@ -204,8 +209,6 @@ export function EditorWorkspace() {
           onUpload={handleUpload}
           onOpen={(projectId) => void handleOpen(projectId)}
           onSave={() => void handleSave()}
-          onTransform={() => setTransformOpen(true)}
-          transformDisabled={phase === "processing" || phase === "preview"}
           onOpenDiagnostics={() => setDiagnosticsOpen(true)}
         />
         <section className={cn(
@@ -213,7 +216,14 @@ export function EditorWorkspace() {
           inspectorCollapsed ? "md:grid-cols-[48px_minmax(0,1fr)]" : "md:grid-cols-[256px_minmax(0,1fr)]",
         )}>
           <aside className={cn("order-2 grid min-h-0 overflow-hidden bg-paper md:order-1 md:grid-cols-[48px_minmax(0,1fr)]", !inspectorCollapsed && "max-md:grid-rows-[48px_minmax(0,42dvh)]")} aria-label="Editor tools">
-            <ToolRail collapsed={inspectorCollapsed} disabled={!editor.currentVersionId || phase === "processing" || phase === "preview"} onSelectTool={selectTool} onToggleInspector={() => setInspectorCollapsed((current) => !current)} />
+            <ToolRail
+              collapsed={inspectorCollapsed}
+              disabled={!editor.currentVersionId || phase === "processing" || phase === "preview"}
+              transformOpen={transformOpen}
+              onSelectTool={selectTool}
+              onOpenTransform={() => setTransformOpen(true)}
+              onToggleInspector={() => setInspectorCollapsed((current) => !current)}
+            />
             {!inspectorCollapsed && (
               <div className="min-h-0 border-t border-line md:border-t-0" data-testid="editor-inspector">
                 <EditorInspector

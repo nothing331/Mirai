@@ -161,7 +161,8 @@ test("Transform works without a selection for local and generative presets", asy
   await page.goto("/");
   await uploadTestImage(page);
 
-  await page.getByTestId("open-transform").click();
+  const toolRail = page.getByRole("complementary", { name: "Editor tools" });
+  await toolRail.getByTestId("open-transform").click();
   const transform = page.getByRole("dialog", { name: "Transform the visual language" });
   await expect(transform).toBeVisible();
   await expect(transform.getByText("5 recipes + custom")).toBeVisible();
@@ -174,7 +175,7 @@ test("Transform works without a selection for local and generative presets", asy
   await expect(page.getByText("1 accepted edit", { exact: true })).toBeVisible();
 
   await page.getByTestId("undo").click();
-  await page.getByTestId("open-transform").click();
+  await page.keyboard.press("t");
   await transform.getByRole("radio", { name: /Anime Theme/ }).click();
   await transform.getByLabel("Transformation prompt").fill("Warm nostalgic evening light");
   await transform.getByRole("radio", { name: "Faithful" }).click();

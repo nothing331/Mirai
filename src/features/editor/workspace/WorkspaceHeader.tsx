@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, Copy, Download, FolderOpen, ImagePlus, LoaderCircle, MoreHorizontal, Redo2, RotateCcw, Save, Undo2, WandSparkles } from "lucide-react";
+import { Activity, Copy, Download, FolderOpen, ImagePlus, LoaderCircle, MoreHorizontal, Redo2, RotateCcw, Save, Undo2 } from "lucide-react";
 import type { ChangeEvent } from "react";
 import { cn } from "@/lib/utils";
 import { exportVersion } from "../image-data";
@@ -18,8 +18,6 @@ export function WorkspaceHeader({
   onUpload,
   onOpen,
   onSave,
-  onTransform,
-  transformDisabled,
   onOpenDiagnostics,
 }: {
   busyAction: BusyAction;
@@ -29,8 +27,6 @@ export function WorkspaceHeader({
   onUpload: (event: ChangeEvent<HTMLInputElement>) => void;
   onOpen: (projectId: string) => void;
   onSave: () => void;
-  onTransform: () => void;
-  transformDisabled: boolean;
   onOpenDiagnostics: () => void;
 }) {
   const currentVersion = useEditorStore(getCurrentVersion);
@@ -76,7 +72,6 @@ export function WorkspaceHeader({
       </div>
 
       <div className="flex min-w-0 items-center justify-end gap-0.5">
-        <button type="button" data-testid="open-transform" className="mr-1 flex h-8 items-center gap-1.5 bg-acid px-2.5 text-[10px] font-bold text-ink outline-none hover:bg-ink hover:text-acid focus-visible:ring-2 focus-visible:ring-accent disabled:pointer-events-none disabled:opacity-30" disabled={!currentVersion || disabled || transformDisabled} onClick={onTransform}><WandSparkles className="size-3.5" /><span className="hidden md:inline">Transform</span></button>
         <div className="mr-1 hidden items-center lg:flex">
           <button type="button" data-testid="undo" aria-label="Undo" title="Undo (⌘Z)" className={iconButton} disabled={!canUndo || disabled} onClick={undo}><Undo2 className="size-4" /></button>
           <button type="button" data-testid="redo" aria-label="Redo" title="Redo (⇧⌘Z)" className={iconButton} disabled={!canRedo || disabled} onClick={redo}><Redo2 className="size-4" /></button>
