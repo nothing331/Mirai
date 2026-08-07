@@ -7,7 +7,8 @@ import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 import type { EditBoundaryPolicy } from "@/shared/edit-boundary";
 import { useEditorStore } from "../store";
-import type { EditType, FakeScenario, SelectionMode } from "../types";
+import type { EditType, FakeScenario, SelectionMode, TransformInput } from "../types";
+import { TransformInspector } from "./TransformInspector";
 import type { ProviderCapabilities } from "./workspace-types";
 import type { WorkspacePhase } from "./workspace-phase";
 
@@ -22,15 +23,19 @@ export function EditorInspector({
   phase,
   providerCapabilities,
   realRequestsUsed,
+  transformSelected,
   onGenerate,
+  onGenerateTransform,
   onRetry,
   onOpenDiagnostics,
 }: {
   phase: WorkspacePhase;
   providerCapabilities: ProviderCapabilities | null;
   realRequestsUsed: number;
+  transformSelected: boolean;
   onGenerate: () => void;
-  onRetry: () => void;
+  onGenerateTransform: (input: TransformInput) => Promise<boolean>;
+  onRetry: () => Promise<boolean>;
   onOpenDiagnostics: () => void;
 }) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -69,6 +74,10 @@ export function EditorInspector({
         <strong className="text-xs text-ink">Open an image to begin</strong>
       </div>
     );
+  }
+
+  if (transformSelected) {
+    return <TransformInspector providerCapabilities={providerCapabilities} realRequestsUsed={realRequestsUsed} onGenerate={onGenerateTransform} onRetry={onRetry} onOpenDiagnostics={onOpenDiagnostics} />;
   }
 
   if (phase === "preview") {
@@ -233,7 +242,7 @@ export function EditorInspector({
             <code className="break-all font-mono text-[8px]">Request {state.generativeState.snapshot.requestId}</code>
             <div className="flex flex-wrap gap-2">
               <button type="button" className="h-8 bg-paper px-2 font-bold text-ink hover:bg-white" onClick={onOpenDiagnostics}><Activity className="mr-1 inline size-3" />View diagnostics</button>
-              {state.generativeState.retryable && <button type="button" className="h-8 bg-paper px-2 font-bold text-ink hover:bg-white" onClick={onRetry}>Retry same request</button>}
+              {state.generativeState.retryable && <button type="button" className="h-8 bg-paper px-2 font-bold text-ink hover:bg-white" onClick={() => void onRetry()}>Retry same request</button>}
             </div>
           </div>
         )}

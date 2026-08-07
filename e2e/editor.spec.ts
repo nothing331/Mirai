@@ -76,7 +76,7 @@ test("upload, select, and recolor an image", async ({ page }) => {
   await canvas.hover({ position: { x: bounds.width / 2, y: bounds.height / 2 } });
   await page.mouse.wheel(0, -300);
   await expect(canvas).not.toHaveAttribute("data-viewport-scale", scaleBefore!);
-  await page.getByRole("radio", { name: "Pan" }).click();
+  await page.getByRole("radio", { name: "Hand" }).click();
   await expect(page.getByLabel("Size")).toHaveCount(0);
   await expect(page.getByLabel("Softness")).toHaveCount(0);
   const viewportBefore = await canvas.getAttribute("data-viewport-x");
@@ -162,10 +162,16 @@ test("Transform works without a selection for local and generative presets", asy
   await uploadTestImage(page);
 
   const toolRail = page.getByRole("complementary", { name: "Editor tools" });
+  for (const label of ["Lasso", "Brush", "Eraser", "Hand", "Transform"]) {
+    await toolRail.getByLabel(label, { exact: true }).hover();
+    await expect(toolRail.locator(`[data-tooltip="${label}"]`)).toBeVisible();
+  }
+  await toolRail.getByLabel("Collapse inspector").hover();
+  await expect(toolRail.locator('[data-tooltip="Collapse inspector"]')).toBeVisible();
   await toolRail.getByTestId("open-transform").click();
-  const transform = page.getByRole("dialog", { name: "Transform the visual language" });
+  const transform = page.getByTestId("transform-inspector");
   await expect(transform).toBeVisible();
-  await expect(transform.getByText("5 recipes + custom")).toBeVisible();
+  await expect(transform.getByText("5 presets + custom")).toBeVisible();
   await expect(transform.getByRole("radio", { name: "Faithful" })).toBeChecked();
   await transform.getByRole("radio", { name: /Monochrome/ }).click();
   await expect(transform.getByText(/no model call/i)).toBeVisible();
@@ -182,6 +188,8 @@ test("Transform works without a selection for local and generative presets", asy
   await transform.getByLabel("Development scenario").selectOption("success");
   await transform.getByTestId("generate-transform").click();
   await expect(page.getByTestId("preview-comparison")).toBeVisible();
+  await expect(transform.getByTestId("generate-transform")).toBeDisabled();
+  await expect(transform.getByText("Review on canvas")).toBeVisible();
   await page.getByRole("button", { name: "Adjust" }).click();
   await expect(transform).toBeVisible();
   await expect(transform.getByLabel("Transformation prompt")).toHaveValue("Warm nostalgic evening light");

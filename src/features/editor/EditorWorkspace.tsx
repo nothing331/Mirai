@@ -12,7 +12,6 @@ import { useEditorStore } from "./store";
 import { CanvasFrame } from "./workspace/CanvasFrame";
 import { EditorInspector } from "./workspace/EditorInspector";
 import { ToolRail } from "./workspace/ToolRail";
-import { TransformDialog } from "./workspace/TransformDialog";
 import { WorkspaceHeader } from "./workspace/WorkspaceHeader";
 import { deriveWorkspacePhase } from "./workspace/workspace-phase";
 import type { BusyAction, ExportFormat, ProviderCapabilities } from "./workspace/workspace-types";
@@ -47,14 +46,20 @@ export function EditorWorkspace() {
   const [savedProjects, setSavedProjects] = useState<SavedProjectSummary[]>([]);
   const [exportFormat, setExportFormat] = useState<ExportFormat>("image/png");
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
-  const [transformOpen, setTransformOpen] = useState(false);
+  const [transformSelected, setTransformSelected] = useState(false);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(() => !useEditorStore.getState().currentVersionId);
   const phase = deriveWorkspacePhase({ hasImage: Boolean(editor.currentVersionId), preview: editor.preview, generativeState: editor.generativeState, selectionMask: editor.selectionMask });
 
   const selectTool = useCallback((tool: Tool) => {
     editor.setTool(tool);
+    setTransformSelected(false);
     setInspectorCollapsed(tool === "pan");
   }, [editor]);
+
+  const selectTransform = useCallback(() => {
+    setTransformSelected(true);
+    setInspectorCollapsed(false);
+  }, []);
 
   useEffect(() => {
     fetch("/api/image-edits").then((response) => response.json()).then((capabilities: ProviderCapabilities) => setProviderCapabilities(capabilities)).catch(() => setProviderCapabilities(null));
@@ -92,7 +97,7 @@ export function EditorWorkspace() {
       if (!editor.currentVersionId || event.metaKey || event.ctrlKey || event.altKey) return;
       if (event.key.toLowerCase() === "t") {
         event.preventDefault();
-        if (phase !== "processing" && phase !== "preview") setTransformOpen(true);
+        if (phase !== "processing" && phase !== "preview") selectTransform();
         return;
       }
       const tool = ({ l: "lasso", b: "brush", e: "eraser", h: "pan" } as const)[event.key.toLowerCase() as "l" | "b" | "e" | "h"];
@@ -103,7 +108,7 @@ export function EditorWorkspace() {
     };
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
-  }, [editor, phase, selectTool]);
+  }, [editor, phase, selectTool, selectTransform]);
 
   /** Confirms and counts a paid request before allowing it to reach the real provider. */
   function authorizeProviderRequest(label: string, pipeline: "direct" | "replace-planned" | "transform-validated"): boolean {
@@ -151,7 +156,7 @@ export function EditorWorkspace() {
 
   function handleAdjustTransform() {
     editor.discardPreview();
-    setTransformOpen(true);
+    selectTransform();
   }
 
   async function handleUpload(event: ChangeEvent<HTMLInputElement>) {
@@ -162,6 +167,7 @@ export function EditorWorkspace() {
     editor.setError(null);
     try {
       editor.loadImage(await decodeImage(file));
+      setTransformSelected(false);
       setInspectorCollapsed(false);
       setRealRequestsUsed(0);
       sessionStorage.removeItem("local-edit-real-requests");
@@ -190,6 +196,7 @@ export function EditorWorkspace() {
     setBusyAction("open");
     try {
       editor.restoreProject(await openSavedProject(id));
+      setTransformSelected(false);
       setInspectorCollapsed(false);
     } catch (error) {
       editor.setError(error instanceof Error ? error.message : "The project could not be opened.");
@@ -215,13 +222,13 @@ export function EditorWorkspace() {
           "grid h-[calc(100dvh-3.5rem)] min-h-0 grid-rows-[minmax(300px,1fr)_auto] transition-[grid-template-columns] duration-200 ease-out md:grid-rows-1",
           inspectorCollapsed ? "md:grid-cols-[48px_minmax(0,1fr)]" : "md:grid-cols-[256px_minmax(0,1fr)]",
         )}>
-          <aside className={cn("order-2 grid min-h-0 overflow-hidden bg-paper md:order-1 md:grid-cols-[48px_minmax(0,1fr)]", !inspectorCollapsed && "max-md:grid-rows-[48px_minmax(0,42dvh)]")} aria-label="Editor tools">
+          <aside className={cn("order-2 grid min-h-0 bg-paper md:order-1 md:grid-cols-[48px_minmax(0,1fr)]", !inspectorCollapsed && "max-md:grid-rows-[48px_minmax(0,42dvh)]")} aria-label="Editor tools">
             <ToolRail
               collapsed={inspectorCollapsed}
               disabled={!editor.currentVersionId || phase === "processing" || phase === "preview"}
-              transformOpen={transformOpen}
+              transformSelected={transformSelected}
               onSelectTool={selectTool}
-              onOpenTransform={() => setTransformOpen(true)}
+              onSelectTransform={selectTransform}
               onToggleInspector={() => setInspectorCollapsed((current) => !current)}
             />
             {!inspectorCollapsed && (
@@ -230,8 +237,10 @@ export function EditorWorkspace() {
                   phase={phase}
                   providerCapabilities={providerCapabilities}
                   realRequestsUsed={realRequestsUsed}
+                  transformSelected={transformSelected}
                   onGenerate={() => void handleGeneratePreview()}
-                  onRetry={() => void handleRetryPreview()}
+                  onGenerateTransform={handleTransformPreview}
+                  onRetry={handleRetryPreview}
                   onOpenDiagnostics={() => setDiagnosticsOpen(true)}
                 />
               </div>
@@ -240,15 +249,6 @@ export function EditorWorkspace() {
           <CanvasFrame busyAction={busyAction} onUpload={handleUpload} onAdjustTransform={handleAdjustTransform} />
         </section>
       </main>
-      <TransformDialog
-        open={transformOpen}
-        providerCapabilities={providerCapabilities}
-        realRequestsUsed={realRequestsUsed}
-        onClose={() => setTransformOpen(false)}
-        onGenerate={handleTransformPreview}
-        onRetry={handleRetryPreview}
-        onOpenDiagnostics={() => setDiagnosticsOpen(true)}
-      />
       <DiagnosticsDrawer projectId={editor.projectId} focusRequestId={editor.lastRequestId} open={diagnosticsOpen} onClose={() => setDiagnosticsOpen(false)} />
     </>
   );
