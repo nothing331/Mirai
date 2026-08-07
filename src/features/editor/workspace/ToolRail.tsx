@@ -1,6 +1,6 @@
 "use client";
 
-import { Brush, Eraser, Hand, LassoSelect, PanelLeftClose, PanelLeftOpen, WandSparkles } from "lucide-react";
+import { Brush, Eraser, Expand, Hand, LassoSelect, PanelLeftClose, PanelLeftOpen, WandSparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEditorStore } from "../store";
 import type { Tool } from "../types";
@@ -12,7 +12,7 @@ const tools: Array<{ value: Tool; label: string; shortcut: string; icon: typeof 
   { value: "pan", label: "Hand", shortcut: "H", icon: Hand },
 ];
 
-export function ToolRail({ collapsed, disabled, transformSelected, onSelectTool, onSelectTransform, onToggleInspector }: { collapsed: boolean; disabled: boolean; transformSelected: boolean; onSelectTool: (tool: Tool) => void; onSelectTransform: () => void; onToggleInspector: () => void }) {
+export function ToolRail({ collapsed, disabled, transformSelected, extendSelected, onSelectTool, onSelectTransform, onSelectExtend, onToggleInspector }: { collapsed: boolean; disabled: boolean; transformSelected: boolean; extendSelected: boolean; onSelectTool: (tool: Tool) => void; onSelectTransform: () => void; onSelectExtend: () => void; onToggleInspector: () => void }) {
   const tool = useEditorStore((state) => state.tool);
   const hasPendingPaint = useEditorStore((state) => Boolean(state.paintSession));
 
@@ -24,13 +24,13 @@ export function ToolRail({ collapsed, disabled, transformSelected, onSelectTool,
             key={value}
             type="button"
             role="radio"
-            aria-checked={!transformSelected && tool === value}
+            aria-checked={!transformSelected && !extendSelected && tool === value}
             aria-label={label}
             title={`${label} (${shortcut})`}
             disabled={disabled}
             className={cn(
               "group relative grid size-11 place-items-center text-muted outline-none transition-[background-color,color,transform] hover:bg-white/70 hover:text-ink focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent disabled:opacity-30",
-              !transformSelected && tool === value && "bg-ink text-acid hover:bg-ink hover:text-acid",
+              !transformSelected && !extendSelected && tool === value && "bg-ink text-acid hover:bg-ink hover:text-acid",
             )}
             onClick={() => onSelectTool(value)}
           >
@@ -42,6 +42,9 @@ export function ToolRail({ collapsed, disabled, transformSelected, onSelectTool,
         ))}
       </div>
       <div className="border-line max-md:border-l md:w-full md:border-t md:py-1">
+        <button type="button" data-testid="open-extend" aria-label="Extend" aria-pressed={extendSelected} title="Extend (X)" disabled={disabled} className={cn("group relative grid size-11 place-items-center text-muted outline-none hover:bg-white/70 hover:text-ink focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent disabled:opacity-30 md:mx-auto", extendSelected && "bg-ink text-acid hover:bg-ink hover:text-acid")} onClick={onSelectExtend}>
+          <Expand className="size-[17px]" /><ToolLabel label="Extend" shortcut="X" /><span className="sr-only">X</span>
+        </button>
         <button
           type="button"
           data-testid="open-transform"

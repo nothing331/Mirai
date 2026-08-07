@@ -18,7 +18,7 @@ const EditorCanvas = dynamic(() => import("../EditorCanvas").then((module) => mo
   loading: () => <div className="absolute inset-0 grid place-items-center font-mono text-xs text-white">Preparing canvas…</div>,
 });
 
-export function CanvasFrame({ busyAction, onUpload, onAdjustTransform }: { busyAction: BusyAction; onUpload: (event: ChangeEvent<HTMLInputElement>) => void; onAdjustTransform: () => void }) {
+export function CanvasFrame({ busyAction, onUpload, extendSelected, onAdjustTransform, onAdjustExtend }: { busyAction: BusyAction; onUpload: (event: ChangeEvent<HTMLInputElement>) => void; extendSelected: boolean; onAdjustTransform: () => void; onAdjustExtend: () => void }) {
   const [compareWith, setCompareWith] = useState<ComparisonBase>("original");
   const state = useEditorStore(useShallow((editor) => ({
     currentVersion: getCurrentVersion(editor),
@@ -35,6 +35,7 @@ export function CanvasFrame({ busyAction, onUpload, onAdjustTransform }: { busyA
     acceptPreview: editor.acceptPreview,
     discardPreview: editor.discardPreview,
     requestViewReset: editor.requestViewReset,
+    extendState: editor.extendState,
   })));
   const currentIndex = state.versions.findIndex((version) => version.id === state.currentVersionId);
   const comparisonVersion = compareWith === "previous" && currentIndex > 0 ? state.versions[currentIndex - 1] : state.originalVersion;
@@ -47,15 +48,19 @@ export function CanvasFrame({ busyAction, onUpload, onAdjustTransform }: { busyA
             baseLabel={compareWith === "previous" ? "Previous" : "Original"}
             originalUrl={comparisonVersion.dataUrl}
             previewUrl={state.preview.dataUrl}
-            boundaryPolicy={state.preview.method === "generative" && state.preview.type !== "transform" ? state.preview.parameters.boundaryPolicy : null}
-            candidateAnalysis={state.preview.method === "generative" ? state.preview.parameters.candidateAnalysis : null}
+            boundaryPolicy={state.preview.method === "generative" && (state.preview.type === "remove" || state.preview.type === "replace" || state.preview.type === "restyle") ? state.preview.parameters.boundaryPolicy : null}
+            candidateAnalysis={state.preview.method === "generative" && (state.preview.type === "remove" || state.preview.type === "replace" || state.preview.type === "restyle" || state.preview.type === "transform") ? state.preview.parameters.candidateAnalysis : null}
             transformFidelityAssessment={state.preview.method === "generative" && state.preview.type === "transform" ? state.preview.parameters.transformFidelityAssessment : null}
             transformPreview={state.preview.type === "transform"}
-            acceptanceBlocked={state.preview.method === "generative" ? state.preview.type === "transform" ? blocksTransformAcceptance(state.preview.parameters.preservationMode, state.preview.parameters.transformFidelityAssessment) : blocksReplaceReviewAcceptance(state.preview.type, state.preview.parameters.boundaryPolicy, state.preview.parameters.candidateAnalysis) : false}
+            extendPreview={state.preview.type === "extend"}
+            acceptanceBlocked={state.preview.method === "generative" ? state.preview.type === "transform" ? blocksTransformAcceptance(state.preview.parameters.preservationMode, state.preview.parameters.transformFidelityAssessment) : state.preview.type === "extend" ? false : blocksReplaceReviewAcceptance(state.preview.type, state.preview.parameters.boundaryPolicy, state.preview.parameters.candidateAnalysis) : false}
             onAccept={state.acceptPreview}
             onDiscard={state.discardPreview}
             onAdjustTransform={onAdjustTransform}
+            onAdjustExtend={onAdjustExtend}
           />
+        ) : extendSelected && state.currentVersion && state.extendState.status === "planned" ? (
+          <ExtendPlanCanvas imageUrl={state.currentVersion.dataUrl} imageWidth={state.currentVersion.width} imageHeight={state.currentVersion.height} plan={state.extendState.plan} />
         ) : state.currentVersion && state.selectionMask ? (
           <EditorCanvas version={state.currentVersion} mask={state.selectionMask} color={state.color} viewResetKey={state.viewResetKey} />
         ) : (
@@ -100,7 +105,7 @@ function ProjectLoadingOverlay() {
 }
 
 /** Shows the immutable base and unaccepted candidate before history advances. */
-function PreviewComparison({ baseLabel, originalUrl, previewUrl, boundaryPolicy, candidateAnalysis, transformFidelityAssessment, transformPreview, acceptanceBlocked, onAccept, onDiscard, onAdjustTransform }: {
+function PreviewComparison({ baseLabel, originalUrl, previewUrl, boundaryPolicy, candidateAnalysis, transformFidelityAssessment, transformPreview, extendPreview, acceptanceBlocked, onAccept, onDiscard, onAdjustTransform, onAdjustExtend }: {
   baseLabel: string;
   originalUrl: string;
   previewUrl: string;
@@ -108,10 +113,12 @@ function PreviewComparison({ baseLabel, originalUrl, previewUrl, boundaryPolicy,
   candidateAnalysis: CandidateAnalysis | null;
   transformFidelityAssessment: TransformFidelityAssessment | null;
   transformPreview: boolean;
+  extendPreview: boolean;
   acceptanceBlocked: boolean;
   onAccept: () => boolean;
   onDiscard: () => void;
   onAdjustTransform: () => void;
+  onAdjustExtend: () => void;
 }) {
   return (
     <div className="preview-enter absolute inset-0 grid grid-rows-[auto_1fr_auto] bg-[#151513] p-2 sm:p-3" data-testid="preview-comparison">
@@ -136,9 +143,26 @@ function PreviewComparison({ baseLabel, originalUrl, previewUrl, boundaryPolicy,
         {acceptanceBlocked && !transformFidelityAssessment && <p className="bg-[#4a1f1a] px-3 py-2 font-mono text-[9px] leading-relaxed text-[#ffb5a7]" role="alert" data-testid="replace-scope-mismatch">Scope mismatch: most changes landed outside the selected target. Discard and generate again, or switch to protected mode.</p>}
         <div className="flex justify-end gap-2">
           {transformPreview && <button type="button" className="flex h-9 items-center gap-2 px-3 text-xs font-bold text-white/75 outline-none hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white" onClick={onAdjustTransform}><SlidersHorizontal className="size-4" />Adjust</button>}
+          {extendPreview && <button type="button" className="flex h-9 items-center gap-2 px-3 text-xs font-bold text-white/75 outline-none hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white" onClick={onAdjustExtend}><SlidersHorizontal className="size-4" />Adjust frame</button>}
           <button type="button" className="flex h-9 items-center gap-2 px-3 text-xs font-bold text-white/75 outline-none hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white" onClick={onDiscard}><X className="size-4" />Discard</button>
           <button type="button" data-testid="accept-preview" className="flex h-9 items-center gap-2 bg-acid px-3 text-xs font-bold text-ink outline-none hover:bg-white focus-visible:ring-2 focus-visible:ring-acid disabled:cursor-not-allowed disabled:bg-white/20 disabled:text-white/40" disabled={acceptanceBlocked} onClick={onAccept}><Check className="size-4" />Accept edit</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ExtendPlanCanvas({ imageUrl, imageWidth, imageHeight, plan }: { imageUrl: string; imageWidth: number; imageHeight: number; plan: import("@/shared/extend-plan").SmartReframePlan }) {
+  const placement = plan.sourcePlacement;
+  const crop = plan.sourceCrop;
+  return (
+    <div className="absolute inset-0 grid place-items-center p-8" data-testid="extend-plan-canvas">
+      <div className="relative max-h-full max-w-full overflow-hidden bg-[repeating-linear-gradient(135deg,#2d2d2a_0,#2d2d2a_8px,#252522_8px,#252522_16px)] ring-1 ring-acid shadow-[8px_8px_0_rgba(216,244,65,.18)]" style={{ aspectRatio: `${plan.outputWidth}/${plan.outputHeight}`, width: plan.outputWidth >= plan.outputHeight ? "min(82%,1000px)" : "auto", height: plan.outputHeight > plan.outputWidth ? "min(82%,720px)" : "auto" }}>
+        <div className="absolute overflow-hidden ring-1 ring-white/35" style={{ left: `${placement.x / plan.outputWidth * 100}%`, top: `${placement.y / plan.outputHeight * 100}%`, width: `${placement.width / plan.outputWidth * 100}%`, height: `${placement.height / plan.outputHeight * 100}%` }}>
+          <Image src={imageUrl} alt="Source positioned inside proposed Extend frame" unoptimized width={imageWidth} height={imageHeight} className="absolute max-w-none" style={{ width: `${imageWidth / crop.width * 100}%`, height: `${imageHeight / crop.height * 100}%`, left: `${-crop.x / crop.width * 100}%`, top: `${-crop.y / crop.height * 100}%` }} />
+        </div>
+        <div className="pointer-events-none absolute inset-0 border border-acid/70" />
+        <span className="absolute bottom-2 right-2 bg-ink/85 px-2 py-1 font-mono text-[8px] uppercase tracking-[.1em] text-acid">{plan.outputWidth} × {plan.outputHeight}</span>
       </div>
     </div>
   );

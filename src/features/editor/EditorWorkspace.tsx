@@ -35,6 +35,9 @@ export function EditorWorkspace() {
     createPreview: state.createPreview,
     requestGenerativePreview: state.requestGenerativePreview,
     requestTransformPreview: state.requestTransformPreview,
+    extendState: state.extendState,
+    planExtend: state.planExtend,
+    generateExtend: state.generateExtend,
     retryGenerativePreview: state.retryGenerativePreview,
     discardPreview: state.discardPreview,
     undo: state.undo,
@@ -47,17 +50,26 @@ export function EditorWorkspace() {
   const [exportFormat, setExportFormat] = useState<ExportFormat>("image/png");
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [transformSelected, setTransformSelected] = useState(false);
+  const [extendSelected, setExtendSelected] = useState(false);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(() => !useEditorStore.getState().currentVersionId);
   const phase = deriveWorkspacePhase({ hasImage: Boolean(editor.currentVersionId), preview: editor.preview, generativeState: editor.generativeState, selectionMask: editor.selectionMask });
 
   const selectTool = useCallback((tool: Tool) => {
     editor.setTool(tool);
     setTransformSelected(false);
+    setExtendSelected(false);
     setInspectorCollapsed(tool === "pan");
   }, [editor]);
 
   const selectTransform = useCallback(() => {
     setTransformSelected(true);
+    setExtendSelected(false);
+    setInspectorCollapsed(false);
+  }, []);
+
+  const selectExtend = useCallback(() => {
+    setExtendSelected(true);
+    setTransformSelected(false);
     setInspectorCollapsed(false);
   }, []);
 
@@ -100,6 +112,11 @@ export function EditorWorkspace() {
         if (phase !== "processing" && phase !== "preview") selectTransform();
         return;
       }
+      if (event.key.toLowerCase() === "x") {
+        event.preventDefault();
+        if (phase !== "processing" && phase !== "preview") selectExtend();
+        return;
+      }
       const tool = ({ l: "lasso", b: "brush", e: "eraser", h: "pan" } as const)[event.key.toLowerCase() as "l" | "b" | "e" | "h"];
       if (tool) {
         event.preventDefault();
@@ -108,10 +125,10 @@ export function EditorWorkspace() {
     };
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
-  }, [editor, phase, selectTool, selectTransform]);
+  }, [editor, phase, selectExtend, selectTool, selectTransform]);
 
   /** Confirms and counts a paid request before allowing it to reach the real provider. */
-  function authorizeProviderRequest(label: string, pipeline: "direct" | "replace-planned" | "transform-validated"): boolean {
+  function authorizeProviderRequest(label: string, pipeline: "direct" | "replace-planned" | "transform-validated" | "extend-low"): boolean {
     if (providerCapabilities?.provider !== "openai") return true;
     if (realRequestsUsed >= providerCapabilities.maxRealRequestsPerSession) {
       editor.setError(`The session limit of ${providerCapabilities.maxRealRequestsPerSession} real API requests has been reached.`);
@@ -119,11 +136,14 @@ export function EditorWorkspace() {
     }
     const requestDescription = pipeline === "transform-validated"
       ? "source planning, one paid OpenAI image request, and semantic fidelity validation"
+      : pipeline === "extend-low"
+        ? "one paid OpenAI image extension request using the approved Smart Reframe plan"
       : pipeline === "replace-planned"
         ? "context planning and, if planning succeeds, one paid OpenAI image request"
         : "one paid OpenAI image request without a planner call";
-    const plannerDescription = pipeline === "direct" ? "" : `Vision model: ${providerCapabilities.plannerModel}\n`;
-    const confirmed = window.confirm(`${label} will run ${requestDescription}.\n\n${plannerDescription}Image model: ${providerCapabilities.imageModel}\nQuality: ${providerCapabilities.quality}\nMaximum input edge: ${providerCapabilities.maxInputEdge}px\nSession usage after confirmation: ${realRequestsUsed + 1}/${providerCapabilities.maxRealRequestsPerSession}`);
+    const plannerDescription = pipeline === "direct" || pipeline === "extend-low" ? "" : `Vision model: ${providerCapabilities.plannerModel}\n`;
+    const quality = pipeline === "extend-low" ? "low" : providerCapabilities.quality;
+    const confirmed = window.confirm(`${label} will run ${requestDescription}.\n\n${plannerDescription}Image model: ${providerCapabilities.imageModel}\nQuality: ${quality}\nMaximum input edge: ${providerCapabilities.maxInputEdge}px\nSession usage after confirmation: ${realRequestsUsed + 1}/${providerCapabilities.maxRealRequestsPerSession}`);
     if (confirmed) {
       const nextUsage = realRequestsUsed + 1;
       setRealRequestsUsed(nextUsage);
@@ -154,9 +174,19 @@ export function EditorWorkspace() {
     return editor.requestTransformPreview(input);
   }
 
+  async function handleGenerateExtend(): Promise<boolean> {
+    if (!authorizeProviderRequest("Generate extension", "extend-low")) return false;
+    return editor.generateExtend();
+  }
+
   function handleAdjustTransform() {
     editor.discardPreview();
     selectTransform();
+  }
+
+  function handleAdjustExtend() {
+    editor.discardPreview();
+    selectExtend();
   }
 
   async function handleUpload(event: ChangeEvent<HTMLInputElement>) {
@@ -168,6 +198,7 @@ export function EditorWorkspace() {
     try {
       editor.loadImage(await decodeImage(file));
       setTransformSelected(false);
+      setExtendSelected(false);
       setInspectorCollapsed(false);
       setRealRequestsUsed(0);
       sessionStorage.removeItem("local-edit-real-requests");
@@ -197,6 +228,7 @@ export function EditorWorkspace() {
     try {
       editor.restoreProject(await openSavedProject(id));
       setTransformSelected(false);
+      setExtendSelected(false);
       setInspectorCollapsed(false);
     } catch (error) {
       editor.setError(error instanceof Error ? error.message : "The project could not be opened.");
@@ -227,8 +259,10 @@ export function EditorWorkspace() {
               collapsed={inspectorCollapsed}
               disabled={!editor.currentVersionId || phase === "processing" || phase === "preview"}
               transformSelected={transformSelected}
+              extendSelected={extendSelected}
               onSelectTool={selectTool}
               onSelectTransform={selectTransform}
+              onSelectExtend={selectExtend}
               onToggleInspector={() => setInspectorCollapsed((current) => !current)}
             />
             {!inspectorCollapsed && (
@@ -238,15 +272,18 @@ export function EditorWorkspace() {
                   providerCapabilities={providerCapabilities}
                   realRequestsUsed={realRequestsUsed}
                   transformSelected={transformSelected}
+                  extendSelected={extendSelected}
                   onGenerate={() => void handleGeneratePreview()}
                   onGenerateTransform={handleTransformPreview}
+                  onPlanExtend={editor.planExtend}
+                  onGenerateExtend={handleGenerateExtend}
                   onRetry={handleRetryPreview}
                   onOpenDiagnostics={() => setDiagnosticsOpen(true)}
                 />
               </div>
             )}
           </aside>
-          <CanvasFrame busyAction={busyAction} onUpload={handleUpload} onAdjustTransform={handleAdjustTransform} />
+          <CanvasFrame busyAction={busyAction} onUpload={handleUpload} extendSelected={extendSelected} onAdjustTransform={handleAdjustTransform} onAdjustExtend={handleAdjustExtend} />
         </section>
       </main>
       <DiagnosticsDrawer projectId={editor.projectId} focusRequestId={editor.lastRequestId} open={diagnosticsOpen} onClose={() => setDiagnosticsOpen(false)} />

@@ -148,7 +148,7 @@ test("brush paint is draft-only until applied and eraser only clears that draft"
   await page.getByTestId("undo").click();
   await expect(page.getByTestId("redo")).toBeEnabled();
 
-  await page.getByRole("radio", { name: "Pan" }).click();
+  await page.getByRole("radio", { name: "Hand" }).click();
   await expect(page.getByTestId("editor-inspector")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Open inspector" })).toHaveCount(0);
   await page.keyboard.press("l");
@@ -202,6 +202,37 @@ test("Transform works without a selection for local and generative presets", asy
   await page.reload();
   await page.getByLabel("Open saved project").selectOption({ label: projectName });
   await expect(page.getByText("1 accepted edit", { exact: true })).toBeVisible();
+});
+
+test("Extend plans a target frame before generating and accepts changed dimensions", async ({ page }) => {
+  await page.goto("/");
+  await uploadTestImage(page);
+  const toolRail = page.getByRole("complementary", { name: "Editor tools" });
+  await toolRail.getByLabel("Extend", { exact: true }).hover();
+  await expect(toolRail.locator('[data-tooltip="Extend"]')).toBeVisible();
+  await page.getByTestId("open-extend").click();
+  const inspector = page.getByTestId("extend-inspector");
+  await expect(inspector).toBeVisible();
+  await expect(inspector.getByRole("radio", { name: "Smart Reframe" })).toBeChecked();
+  await inspector.getByRole("radio", { name: /Story \/ Reel/ }).click();
+  await inspector.getByRole("button", { name: "Preview smart frame" }).click();
+  await expect(page.getByTestId("extend-plan-canvas")).toBeVisible();
+  await expect(page.getByTestId("extend-plan-summary")).toContainText("18 × 32px");
+  await expect(page.getByText("0 accepted edits", { exact: true })).toBeVisible();
+
+  await inspector.getByRole("button", { name: "Generate extension" }).click();
+  await expect(page.getByTestId("preview-comparison")).toBeVisible();
+  await page.getByRole("button", { name: "Adjust frame" }).click();
+  await expect(page.getByTestId("extend-plan-canvas")).toBeVisible();
+  await inspector.getByRole("button", { name: "Generate extension" }).click();
+  await expect(page.getByTestId("preview-comparison")).toBeVisible();
+  await page.getByTestId("accept-preview").click();
+  await expect(page.getByText("18 × 32px")).toBeVisible();
+  await expect(page.getByText("1 accepted edit", { exact: true })).toBeVisible();
+  await page.getByTestId("undo").click();
+  await expect(page.getByText("20 × 20px")).toBeVisible();
+  await page.getByTestId("redo").click();
+  await expect(page.getByText("18 × 32px")).toBeVisible();
 });
 
 test("fake provider supports generative success, retry, and failure states", async ({ page }) => {
