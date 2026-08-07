@@ -10,6 +10,11 @@ import { OpenAIEditIntentPlanner } from "./openai-intent-planner";
 import { OpenAIImageEditProvider } from "./openai-provider";
 import { OpenAITransformPlanner } from "./openai-transform-planner";
 import { OpenAITransformValidator } from "./openai-transform-validator";
+import type { ExtendPlanner } from "./extend-planner";
+import { FakeExtendPlanner } from "./fake-extend-planner";
+import { OpenAIExtendPlanner } from "./openai-extend-planner";
+import type { ExtendProvider } from "./extend-provider";
+import { FakeExtendProvider, OpenAIExtendProvider } from "./extend-provider";
 
 export type ProviderName = "fake" | "openai";
 
@@ -48,6 +53,19 @@ export function createTransformValidator(): TransformValidator {
 
 export function configuredPlannerModel(): string {
   return process.env.OPENAI_EDIT_PLANNER_MODEL ?? "gpt-5-nano-2025-08-07";
+}
+
+export function createExtendPlanner(): ExtendPlanner {
+  if (configuredProviderName() === "fake") return new FakeExtendPlanner();
+  if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is required when IMAGE_EDIT_PROVIDER=openai.");
+  return new OpenAIExtendPlanner(process.env.OPENAI_API_KEY, process.env.OPENAI_EXTEND_PLANNER_MODEL ?? "gpt-5.6-luna");
+}
+
+/** Extend intentionally uses low image quality independently of other edit workflows. */
+export function createExtendProvider(): ExtendProvider {
+  if (configuredProviderName() === "fake") return new FakeExtendProvider();
+  if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is required when IMAGE_EDIT_PROVIDER=openai.");
+  return new OpenAIExtendProvider(process.env.OPENAI_API_KEY, process.env.OPENAI_EXTEND_IMAGE_MODEL ?? "gpt-image-2", parsePositiveInteger(process.env.OPENAI_EXTEND_PROVIDER_MAX_EDGE, 1536));
 }
 
 /** Restricts environment input to quality values supported by the image-edit API. */

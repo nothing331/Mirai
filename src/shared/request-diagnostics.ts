@@ -13,6 +13,8 @@ export const diagnosticArtifactNames = [
   "transform-plan.json",
   "transform-assessment.json",
   "transform-validator-response.json",
+  "extend-scene-analysis.json",
+  "extend-plan.json",
   "provider-input.png",
   "provider-mask.png",
   "provider-candidate-raw.png",
@@ -26,7 +28,7 @@ export const diagnosticArtifactNames = [
 export type DiagnosticArtifactName = typeof diagnosticArtifactNames[number];
 export type RequestDiagnosticStatus = "processing" | "succeeded" | "failed";
 export type RequestDiagnosticLevel = "info" | "error";
-export type ProviderCallStage = "intent-planner" | "transform-planner" | "image-editor" | "transform-validator";
+export type ProviderCallStage = "intent-planner" | "transform-planner" | "extend-planner" | "image-editor" | "extend-image-editor" | "transform-validator";
 export type ProviderCallStatus = "processing" | "succeeded" | "failed";
 
 export interface RequestDiagnosticEvent {
@@ -75,7 +77,7 @@ export interface RequestDiagnosticManifest {
   retryOfRequestId: string | null;
   providerRequestId: string | null;
   provider: "fake" | "openai";
-  operation: "remove" | "replace" | "restyle" | "transform" | null;
+  operation: "remove" | "replace" | "restyle" | "transform" | "extend" | null;
   boundaryPolicy: EditBoundaryPolicy;
   previewSource: "full-candidate" | "protected-composite" | null;
   status: RequestDiagnosticStatus;
