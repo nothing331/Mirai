@@ -23,7 +23,7 @@ Open `http://localhost:3000`. Saved project metadata is stored in `.local-edit/p
 
 Mirai keeps direct canvas tools in the left rail and shows only the active workflow in the adjacent inspector. Lasso owns Draw/Add/Subtract selection and all selection-based generation. Brush paints a temporary color layer; Eraser removes only that pending paint; Apply records the complete paint session as one reversible edit. Apply before saving or reloading because pending paint is not persisted. Hand pans the image and hides the inspector because it has no settings. Use `L`, `B`, `E`, and `H` for those tools, and `Cmd/Ctrl + Z` or `Cmd/Ctrl + Shift + Z` for undo and redo.
 
-Choose **Transform** in the left tool rail, or press `T`, to reinterpret the complete image without drawing a selection. Choose Monochrome, Sketch, Old Cartoon, Cinematic, Anime Theme, or a custom direction, optionally refine it with a prompt, and select a preservation level. Faithful is the default. Plain Monochrome is processed locally without a provider call; other transformations use source planning, one image request, and post-generation semantic validation.
+Choose **Transform** in the left tool rail, or press `T`, to open its options in the extended sidebar and reinterpret the complete image without drawing a selection. Choose Monochrome, Sketch, Old Cartoon, Cinematic, Anime Theme, or a custom direction, optionally refine it with a prompt, and select a preservation level. Faithful is the default. Plain Monochrome is processed locally without a provider call; other transformations use source planning, one image request, and post-generation semantic validation. Hover or focus any rail icon to see its full tool name and shortcut.
 
 ## Request diagnostics
 
