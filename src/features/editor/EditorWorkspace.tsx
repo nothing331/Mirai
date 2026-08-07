@@ -15,7 +15,7 @@ import { ToolRail } from "./workspace/ToolRail";
 import { WorkspaceHeader } from "./workspace/WorkspaceHeader";
 import { deriveWorkspacePhase } from "./workspace/workspace-phase";
 import type { BusyAction, ExportFormat, ProviderCapabilities } from "./workspace/workspace-types";
-import type { Tool } from "./types";
+import type { Tool, TransformInput } from "./types";
 
 /** Coordinates project I/O and provider authorization around the editor's domain-owned state. */
 export function EditorWorkspace() {
@@ -34,7 +34,9 @@ export function EditorWorkspace() {
     setError: state.setError,
     createPreview: state.createPreview,
     requestGenerativePreview: state.requestGenerativePreview,
+    requestTransformPreview: state.requestTransformPreview,
     retryGenerativePreview: state.retryGenerativePreview,
+    discardPreview: state.discardPreview,
     undo: state.undo,
     redo: state.redo,
   })));
@@ -44,13 +46,20 @@ export function EditorWorkspace() {
   const [savedProjects, setSavedProjects] = useState<SavedProjectSummary[]>([]);
   const [exportFormat, setExportFormat] = useState<ExportFormat>("image/png");
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [transformSelected, setTransformSelected] = useState(false);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(() => !useEditorStore.getState().currentVersionId);
   const phase = deriveWorkspacePhase({ hasImage: Boolean(editor.currentVersionId), preview: editor.preview, generativeState: editor.generativeState, selectionMask: editor.selectionMask });
 
   const selectTool = useCallback((tool: Tool) => {
     editor.setTool(tool);
+    setTransformSelected(false);
     setInspectorCollapsed(tool === "pan");
   }, [editor]);
+
+  const selectTransform = useCallback(() => {
+    setTransformSelected(true);
+    setInspectorCollapsed(false);
+  }, []);
 
   useEffect(() => {
     fetch("/api/image-edits").then((response) => response.json()).then((capabilities: ProviderCapabilities) => setProviderCapabilities(capabilities)).catch(() => setProviderCapabilities(null));
@@ -86,6 +95,11 @@ export function EditorWorkspace() {
         return;
       }
       if (!editor.currentVersionId || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.key.toLowerCase() === "t") {
+        event.preventDefault();
+        if (phase !== "processing" && phase !== "preview") selectTransform();
+        return;
+      }
       const tool = ({ l: "lasso", b: "brush", e: "eraser", h: "pan" } as const)[event.key.toLowerCase() as "l" | "b" | "e" | "h"];
       if (tool) {
         event.preventDefault();
@@ -94,16 +108,22 @@ export function EditorWorkspace() {
     };
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
-  }, [editor, selectTool]);
+  }, [editor, phase, selectTool, selectTransform]);
 
   /** Confirms and counts a paid request before allowing it to reach the real provider. */
-  function authorizeProviderRequest(label: string): boolean {
+  function authorizeProviderRequest(label: string, pipeline: "direct" | "replace-planned" | "transform-validated"): boolean {
     if (providerCapabilities?.provider !== "openai") return true;
     if (realRequestsUsed >= providerCapabilities.maxRealRequestsPerSession) {
       editor.setError(`The session limit of ${providerCapabilities.maxRealRequestsPerSession} real API requests has been reached.`);
       return false;
     }
-    const confirmed = window.confirm(`${label} will run context planning and, if planning succeeds, one paid OpenAI image request.\n\nPlanner: ${providerCapabilities.plannerModel}\nImage model: ${providerCapabilities.imageModel}\nQuality: ${providerCapabilities.quality}\nMaximum input edge: ${providerCapabilities.maxInputEdge}px\nSession usage after confirmation: ${realRequestsUsed + 1}/${providerCapabilities.maxRealRequestsPerSession}`);
+    const requestDescription = pipeline === "transform-validated"
+      ? "source planning, one paid OpenAI image request, and semantic fidelity validation"
+      : pipeline === "replace-planned"
+        ? "context planning and, if planning succeeds, one paid OpenAI image request"
+        : "one paid OpenAI image request without a planner call";
+    const plannerDescription = pipeline === "direct" ? "" : `Vision model: ${providerCapabilities.plannerModel}\n`;
+    const confirmed = window.confirm(`${label} will run ${requestDescription}.\n\n${plannerDescription}Image model: ${providerCapabilities.imageModel}\nQuality: ${providerCapabilities.quality}\nMaximum input edge: ${providerCapabilities.maxInputEdge}px\nSession usage after confirmation: ${realRequestsUsed + 1}/${providerCapabilities.maxRealRequestsPerSession}`);
     if (confirmed) {
       const nextUsage = realRequestsUsed + 1;
       setRealRequestsUsed(nextUsage);
@@ -118,11 +138,25 @@ export function EditorWorkspace() {
       return;
     }
     const ready = editor.selectionMask && maskHasSelection(editor.selectionMask) && (editor.editType === "remove" || editor.prompt.trim().length > 0);
-    if (!ready || authorizeProviderRequest("Generate preview")) await editor.requestGenerativePreview();
+    if (!ready || authorizeProviderRequest("Generate preview", editor.editType === "replace" ? "replace-planned" : "direct")) await editor.requestGenerativePreview();
   }
 
-  async function handleRetryPreview() {
-    if (authorizeProviderRequest("Retry preview")) await editor.retryGenerativePreview();
+  async function handleRetryPreview(): Promise<boolean> {
+    const operation = editor.generativeState.snapshot?.operation;
+    const pipeline = operation === "transform" ? "transform-validated" : operation === "replace" ? "replace-planned" : "direct";
+    if (!authorizeProviderRequest("Retry preview", pipeline)) return false;
+    return editor.retryGenerativePreview();
+  }
+
+  async function handleTransformPreview(input: TransformInput): Promise<boolean> {
+    const localMonochrome = input.presetId === "monochrome" && input.userPrompt.trim().length === 0;
+    if (!localMonochrome && !authorizeProviderRequest("Generate transformation", "transform-validated")) return false;
+    return editor.requestTransformPreview(input);
+  }
+
+  function handleAdjustTransform() {
+    editor.discardPreview();
+    selectTransform();
   }
 
   async function handleUpload(event: ChangeEvent<HTMLInputElement>) {
@@ -133,6 +167,7 @@ export function EditorWorkspace() {
     editor.setError(null);
     try {
       editor.loadImage(await decodeImage(file));
+      setTransformSelected(false);
       setInspectorCollapsed(false);
       setRealRequestsUsed(0);
       sessionStorage.removeItem("local-edit-real-requests");
@@ -161,6 +196,7 @@ export function EditorWorkspace() {
     setBusyAction("open");
     try {
       editor.restoreProject(await openSavedProject(id));
+      setTransformSelected(false);
       setInspectorCollapsed(false);
     } catch (error) {
       editor.setError(error instanceof Error ? error.message : "The project could not be opened.");
@@ -186,22 +222,31 @@ export function EditorWorkspace() {
           "grid h-[calc(100dvh-3.5rem)] min-h-0 grid-rows-[minmax(300px,1fr)_auto] transition-[grid-template-columns] duration-200 ease-out md:grid-rows-1",
           inspectorCollapsed ? "md:grid-cols-[48px_minmax(0,1fr)]" : "md:grid-cols-[256px_minmax(0,1fr)]",
         )}>
-          <aside className={cn("order-2 grid min-h-0 overflow-hidden bg-paper md:order-1 md:grid-cols-[48px_minmax(0,1fr)]", !inspectorCollapsed && "max-md:grid-rows-[48px_minmax(0,42dvh)]")} aria-label="Editor tools">
-            <ToolRail collapsed={inspectorCollapsed} disabled={!editor.currentVersionId || phase === "processing" || phase === "preview"} onSelectTool={selectTool} onToggleInspector={() => setInspectorCollapsed((current) => !current)} />
+          <aside className={cn("order-2 grid min-h-0 bg-paper md:order-1 md:grid-cols-[48px_minmax(0,1fr)]", !inspectorCollapsed && "max-md:grid-rows-[48px_minmax(0,42dvh)]")} aria-label="Editor tools">
+            <ToolRail
+              collapsed={inspectorCollapsed}
+              disabled={!editor.currentVersionId || phase === "processing" || phase === "preview"}
+              transformSelected={transformSelected}
+              onSelectTool={selectTool}
+              onSelectTransform={selectTransform}
+              onToggleInspector={() => setInspectorCollapsed((current) => !current)}
+            />
             {!inspectorCollapsed && (
               <div className="min-h-0 border-t border-line md:border-t-0" data-testid="editor-inspector">
                 <EditorInspector
                   phase={phase}
                   providerCapabilities={providerCapabilities}
                   realRequestsUsed={realRequestsUsed}
+                  transformSelected={transformSelected}
                   onGenerate={() => void handleGeneratePreview()}
-                  onRetry={() => void handleRetryPreview()}
+                  onGenerateTransform={handleTransformPreview}
+                  onRetry={handleRetryPreview}
                   onOpenDiagnostics={() => setDiagnosticsOpen(true)}
                 />
               </div>
             )}
           </aside>
-          <CanvasFrame busyAction={busyAction} onUpload={handleUpload} />
+          <CanvasFrame busyAction={busyAction} onUpload={handleUpload} onAdjustTransform={handleAdjustTransform} />
         </section>
       </main>
       <DiagnosticsDrawer projectId={editor.projectId} focusRequestId={editor.lastRequestId} open={diagnosticsOpen} onClose={() => setDiagnosticsOpen(false)} />

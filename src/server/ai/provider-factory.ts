@@ -1,9 +1,15 @@
 import type { ImageEditProvider } from "./contracts";
 import type { EditIntentPlanner } from "./intent-planner";
+import type { TransformPlanner } from "./transform-planner";
+import type { TransformValidator } from "./transform-validator";
 import { FakeEditIntentPlanner } from "./fake-intent-planner";
 import { FakeImageEditProvider } from "./fake-provider";
+import { FakeTransformPlanner } from "./fake-transform-planner";
+import { FakeTransformValidator } from "./fake-transform-validator";
 import { OpenAIEditIntentPlanner } from "./openai-intent-planner";
 import { OpenAIImageEditProvider } from "./openai-provider";
+import { OpenAITransformPlanner } from "./openai-transform-planner";
+import { OpenAITransformValidator } from "./openai-transform-validator";
 
 export type ProviderName = "fake" | "openai";
 
@@ -26,6 +32,18 @@ export function createEditIntentPlanner(): EditIntentPlanner {
   if (configuredProviderName() === "fake") return new FakeEditIntentPlanner();
   if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is required when IMAGE_EDIT_PROVIDER=openai.");
   return new OpenAIEditIntentPlanner(process.env.OPENAI_API_KEY, configuredPlannerModel());
+}
+
+export function createTransformPlanner(): TransformPlanner {
+  if (configuredProviderName() === "fake") return new FakeTransformPlanner();
+  if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is required when IMAGE_EDIT_PROVIDER=openai.");
+  return new OpenAITransformPlanner(process.env.OPENAI_API_KEY, configuredPlannerModel());
+}
+
+export function createTransformValidator(): TransformValidator {
+  if (configuredProviderName() === "fake") return new FakeTransformValidator();
+  if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is required when IMAGE_EDIT_PROVIDER=openai.");
+  return new OpenAITransformValidator(process.env.OPENAI_API_KEY, configuredPlannerModel());
 }
 
 export function configuredPlannerModel(): string {

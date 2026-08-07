@@ -21,11 +21,21 @@ Use the smallest relevant source for the task:
 | Durable repository rules | `AGENTS.md` |
 | Implemented feature behavior and ownership | Relevant entry in `FEATURE_CONTEXT.md` |
 | Existing behavior | Relevant source code and tests |
+| Frontend design, interaction, layout, styling, or copy | `FRONTEND_DESIGN.md`, then the owning components and tests |
 | Product scope, architecture, data flow, or decisions | Relevant section of `PROJECT.md` |
 | Current milestone, build order, or deliverables | Relevant section of `LOCAL_DEVELOPMENT_PLAN.md` |
 | Setup and canonical commands | `README.md` and package scripts |
 
 Do not load every document for routine changes. Small localized tasks should begin with the relevant code and tests. Read project documents only when the task depends on their context.
+
+## Frontend design
+
+`FRONTEND_DESIGN.md` is the durable visual and interaction contract for the editor. Every agent changing frontend layout, styling, controls, responsive behavior, motion, accessibility, or user-facing copy must read it before implementation.
+
+- Follow its product shell, visual language, component patterns, and state requirements unless the user approves a design-direction change.
+- Prefer existing tokens and patterns. Do not introduce a parallel visual system inside one feature.
+- Update the guide when an approved change alters a reusable design rule; keep feature-specific behavior in `FEATURE_CONTEXT.md`.
+- Verify relevant hover, focus, disabled, processing, failure, responsive, and review states rather than checking only the default appearance.
 
 ## Feature approval and delivery
 

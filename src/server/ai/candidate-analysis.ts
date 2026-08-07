@@ -7,7 +7,7 @@ interface AnalyzeCandidateInput {
   selectionMaskPng: Uint8Array;
   width: number;
   height: number;
-  operation: "remove" | "replace" | "restyle";
+  operation: "remove" | "replace" | "restyle" | "transform";
 }
 
 export interface CandidateAnalysisResult {

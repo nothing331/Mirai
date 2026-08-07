@@ -2,13 +2,15 @@ import { create } from "zustand";
 import { GenerativeRequestError, requestGenerativeCandidate } from "./generative-client";
 import { pixelsToDataUrl } from "./image-data";
 import { cleanRasterMask, unionMasks } from "./mask-cleanup";
-import { createGenerativeProviderMask, createMask, fillPolygonMask, maskHasSelection, paintMask } from "./mask";
+import { createFullImageMask, createGenerativeProviderMask, createMask, fillPolygonMask, maskHasSelection, paintMask } from "./mask";
+import { monochromePixels } from "./monochrome";
 import { compositePaintOverlay, createPaintOverlay, paintOverlayMask, paintOverlayStroke } from "./paint";
 import { recolorPixels } from "./recolor";
 import { cleanLassoContour } from "./selection-geometry";
 import { blocksReplaceReviewAcceptance } from "@/shared/edit-boundary";
+import { blocksTransformAcceptance, unavailableTransformFidelityAssessment } from "@/shared/transform-fidelity";
 import type { EditBoundaryPolicy } from "@/shared/edit-boundary";
-import type { EditOperation, EditPreview, EditType, FakeScenario, GenerativePreviewState, GenerativeRequestSnapshot, ImageVersion, LassoVisualization, MaskAsset, PaintSession, ProcessingMask, SelectionDiagnostics, SelectionMode, SourcePoint, Tool, Viewport } from "./types";
+import type { EditOperation, EditPreview, EditType, FakeScenario, GenerativePreviewState, GenerativeRequestSnapshot, ImageVersion, LassoVisualization, MaskAsset, PaintSession, ProcessingMask, SelectionDiagnostics, SelectionMode, SourcePoint, Tool, TransformInput, Viewport } from "./types";
 
 interface EditorState {
   originalVersionId: string | null;
@@ -61,6 +63,7 @@ interface EditorState {
   commitPaintSession: () => boolean;
   createPreview: () => boolean;
   requestGenerativePreview: () => Promise<boolean>;
+  requestTransformPreview: (input: TransformInput) => Promise<boolean>;
   retryGenerativePreview: () => Promise<boolean>;
   acceptPreview: () => boolean;
   discardPreview: () => void;
@@ -318,6 +321,50 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     };
     return executeGenerativeRequest(snapshot);
   },
+  requestTransformPreview: async (transformInput) => {
+    const state = get();
+    const input = state.versions.find((version) => version.id === state.currentVersionId);
+    if (state.paintSession) {
+      set({ error: "Apply or discard the pending paint before transforming the image." });
+      return false;
+    }
+    const userPrompt = transformInput.userPrompt.trim();
+    if (!input) {
+      set({ error: "Open an image before transforming it." });
+      return false;
+    }
+    if (!transformInput.presetId && !userPrompt) {
+      set({ error: "Choose a transformation preset or describe a custom transformation." });
+      return false;
+    }
+    const normalizedInput = { ...transformInput, userPrompt };
+    const fullMask = createFullImageMask(input.width, input.height);
+    if (normalizedInput.presetId === "monochrome" && userPrompt.length === 0) {
+      const mask: MaskAsset = { id: crypto.randomUUID(), ...fullMask };
+      const pixels = monochromePixels(input);
+      set({
+        preview: {
+          id: crypto.randomUUID(), inputVersionId: input.id, type: "transform", method: "local",
+          parameters: { ...normalizedInput, resolvedInstruction: "Deterministic monochrome luminance conversion." },
+          mask, pixels, dataUrl: pixelsToDataUrl(pixels, input.width, input.height),
+        },
+        generativeState: idleGenerativeState,
+        error: null,
+      });
+      return true;
+    }
+    const snapshot: GenerativeRequestSnapshot = {
+      projectId: state.projectId!,
+      requestId: crypto.randomUUID(),
+      retryOfRequestId: null,
+      inputVersion: { ...input, pixels: new Uint8ClampedArray(input.pixels) },
+      providerMask: fullMask,
+      operation: "transform",
+      ...normalizedInput,
+      scenario: state.fakeScenario,
+    };
+    return executeGenerativeRequest(snapshot);
+  },
   retryGenerativePreview: async () => {
     const state = get();
     if (state.generativeState.status !== "failed" || !state.generativeState.retryable) return false;
@@ -335,8 +382,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       set({ preview: null, error: "The preview is no longer based on the current image." });
       return false;
     }
-    if (preview.method === "generative" && blocksReplaceReviewAcceptance(preview.type, preview.parameters.boundaryPolicy, preview.parameters.candidateAnalysis)) {
+    if (preview.method === "generative" && preview.type !== "transform" && blocksReplaceReviewAcceptance(preview.type, preview.parameters.boundaryPolicy, preview.parameters.candidateAnalysis)) {
       set({ error: "This Replace proposal changed too much outside the selected target. Discard it and generate again, or use protected mode." });
+      return false;
+    }
+    if (preview.method === "generative" && preview.type === "transform" && blocksTransformAcceptance(preview.parameters.preservationMode, preview.parameters.transformFidelityAssessment)) {
+      set({ error: "This Transform proposal did not preserve the source subjects and composition closely enough. Discard it and generate again, or adjust the transformation settings." });
       return false;
     }
     const outputId = crypto.randomUUID();
@@ -345,10 +396,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       pixels: new Uint8ClampedArray(preview.pixels), dataUrl: preview.dataUrl,
     };
     const operation: EditOperation = preview.method === "generative"
-      ? { id: crypto.randomUUID(), inputVersionId: input.id, outputVersionId: outputId, maskId: preview.mask.id, type: preview.type, parameters: preview.parameters, method: "generative", status: "accepted" }
+      ? preview.type === "transform"
+        ? { id: crypto.randomUUID(), inputVersionId: input.id, outputVersionId: outputId, maskId: preview.mask.id, type: "transform", parameters: preview.parameters, method: "generative", status: "accepted" }
+        : { id: crypto.randomUUID(), inputVersionId: input.id, outputVersionId: outputId, maskId: preview.mask.id, type: preview.type, parameters: preview.parameters, method: "generative", status: "accepted" }
       : preview.type === "paint"
         ? { id: crypto.randomUUID(), inputVersionId: input.id, outputVersionId: outputId, maskId: preview.mask.id, type: "paint", parameters: preview.parameters, method: "local", status: "accepted" }
-        : { id: crypto.randomUUID(), inputVersionId: input.id, outputVersionId: outputId, maskId: preview.mask.id, type: "recolor", parameters: preview.parameters, method: "local", status: "accepted" };
+        : preview.type === "transform"
+          ? { id: crypto.randomUUID(), inputVersionId: input.id, outputVersionId: outputId, maskId: preview.mask.id, type: "transform", parameters: preview.parameters, method: "local", status: "accepted" }
+          : { id: crypto.randomUUID(), inputVersionId: input.id, outputVersionId: outputId, maskId: preview.mask.id, type: "recolor", parameters: preview.parameters, method: "local", status: "accepted" };
     const inputIndex = state.versions.findIndex((version) => version.id === input.id);
     const retainedVersions = state.versions.slice(0, inputIndex + 1);
     const retainedVersionIds = new Set(retainedVersions.map((version) => version.id));
@@ -410,10 +465,27 @@ async function executeGenerativeRequest(snapshot: GenerativeRequestSnapshot): Pr
     const state = useEditorStore.getState();
     if (state.generativeState.snapshot?.requestId !== snapshot.requestId) return false;
     const mask: MaskAsset = { id: crypto.randomUUID(), width: snapshot.providerMask.width, height: snapshot.providerMask.height, data: new Uint8ClampedArray(snapshot.providerMask.data) };
-    useEditorStore.setState({
-      preview: {
-        id: crypto.randomUUID(), inputVersionId: snapshot.inputVersion.id,
-        type: snapshot.operation, method: "generative", parameters: {
+    let preview: EditPreview;
+    if (snapshot.operation === "transform") {
+      preview = {
+        id: crypto.randomUUID(), inputVersionId: snapshot.inputVersion.id, type: "transform", method: "generative",
+        parameters: {
+          presetId: snapshot.presetId,
+          presetVersion: snapshot.presetVersion,
+          userPrompt: snapshot.userPrompt,
+          preservationMode: snapshot.preservationMode,
+          resolvedInstruction: candidate.resolvedInstruction ?? snapshot.userPrompt,
+          providerRequestId: candidate.providerRequestId,
+          diagnosticRequestId: candidate.diagnosticRequestId,
+          candidateAnalysis: candidate.candidateAnalysis,
+          transformFidelityAssessment: candidate.transformFidelityAssessment ?? unavailableTransformFidelityAssessment(),
+        },
+        mask, pixels: candidate.pixels, dataUrl: candidate.dataUrl,
+      };
+    } else {
+      preview = {
+        id: crypto.randomUUID(), inputVersionId: snapshot.inputVersion.id, type: snapshot.operation, method: "generative",
+        parameters: {
           prompt: snapshot.prompt,
           providerRequestId: candidate.providerRequestId,
           diagnosticRequestId: candidate.diagnosticRequestId,
@@ -421,7 +493,10 @@ async function executeGenerativeRequest(snapshot: GenerativeRequestSnapshot): Pr
           candidateAnalysis: candidate.candidateAnalysis,
         },
         mask, pixels: candidate.pixels, dataUrl: candidate.dataUrl,
-      },
+      };
+    }
+    useEditorStore.setState({
+      preview,
       generativeState: { status: "preview", snapshot, error: null, retryable: false },
     });
     return true;

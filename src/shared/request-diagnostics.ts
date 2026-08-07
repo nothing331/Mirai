@@ -1,5 +1,6 @@
 import type { EditPlan } from "./edit-plan";
 import type { CandidateAnalysis, EditBoundaryPolicy } from "./edit-boundary";
+import type { TransformFidelityAssessment, TransformPlan } from "./transform-fidelity";
 
 export const diagnosticArtifactNames = [
   "source-input.png",
@@ -9,6 +10,9 @@ export const diagnosticArtifactNames = [
   "planner-selection-detail.png",
   "edit-plan.json",
   "planner-response.json",
+  "transform-plan.json",
+  "transform-assessment.json",
+  "transform-validator-response.json",
   "provider-input.png",
   "provider-mask.png",
   "provider-candidate-raw.png",
@@ -22,7 +26,7 @@ export const diagnosticArtifactNames = [
 export type DiagnosticArtifactName = typeof diagnosticArtifactNames[number];
 export type RequestDiagnosticStatus = "processing" | "succeeded" | "failed";
 export type RequestDiagnosticLevel = "info" | "error";
-export type ProviderCallStage = "intent-planner" | "image-editor";
+export type ProviderCallStage = "intent-planner" | "transform-planner" | "image-editor" | "transform-validator";
 export type ProviderCallStatus = "processing" | "succeeded" | "failed";
 
 export interface RequestDiagnosticEvent {
@@ -65,13 +69,13 @@ export interface RequestDiagnosticProviderCall {
 }
 
 export interface RequestDiagnosticManifest {
-  schemaVersion: 3;
+  schemaVersion: 4;
   projectId: string;
   requestId: string;
   retryOfRequestId: string | null;
   providerRequestId: string | null;
   provider: "fake" | "openai";
-  operation: "remove" | "replace" | "restyle" | null;
+  operation: "remove" | "replace" | "restyle" | "transform" | null;
   boundaryPolicy: EditBoundaryPolicy;
   previewSource: "full-candidate" | "protected-composite" | null;
   status: RequestDiagnosticStatus;
@@ -83,6 +87,8 @@ export interface RequestDiagnosticManifest {
   userPrompt: string;
   plannerInstruction: string | null;
   editPlan: EditPlan | null;
+  transformPlan: TransformPlan | null;
+  transformFidelityAssessment: TransformFidelityAssessment | null;
   candidateAnalysis: CandidateAnalysis | null;
   providerInstruction: string | null;
   sourceDimensions: { width: number; height: number } | null;
@@ -104,7 +110,7 @@ export type RequestDiagnosticSummary = Pick<
 export interface ImageEditDiagnosticSink {
   event(stage: string, message: string, details?: Record<string, string | number | boolean | null>): Promise<void>;
   artifact(name: DiagnosticArtifactName, bytes: Uint8Array, mediaType: RequestDiagnosticArtifact["mediaType"]): Promise<void>;
-  metadata(values: Partial<Pick<RequestDiagnosticManifest, "providerRequestId" | "plannerInstruction" | "editPlan" | "candidateAnalysis" | "providerInstruction" | "providerDimensions" | "previewSource" | "configuration">>): Promise<void>;
+  metadata(values: Partial<Pick<RequestDiagnosticManifest, "providerRequestId" | "plannerInstruction" | "editPlan" | "transformPlan" | "transformFidelityAssessment" | "candidateAnalysis" | "providerInstruction" | "providerDimensions" | "previewSource" | "configuration">>): Promise<void>;
   beginProviderCall(stage: ProviderCallStage, provider: RequestDiagnosticProviderCall["provider"], model: string): Promise<void>;
   completeProviderCall(stage: ProviderCallStage, providerRequestId: string | null, usage?: RequestDiagnosticProviderCall["usage"]): Promise<void>;
   failProviderCall(stage: ProviderCallStage, error: RequestDiagnosticError, retryable: boolean, providerRequestId?: string | null): Promise<void>;

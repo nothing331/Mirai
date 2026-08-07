@@ -2,17 +2,17 @@
 
 ## Product thesis
 
-Most AI image tools replace an image with another generated result. This product treats AI as an editor: the user indicates where an edit should focus, reviews the model's complete proposal, and can undo or compare every accepted change. Users can opt into an exact protected boundary when preservation is more important than natural generative blending.
+Most AI image tools replace an image with another generated result. This product treats AI as an editor: the user either indicates where a localized edit should focus or intentionally transforms the complete image, reviews the proposal, and can undo or compare every accepted change. Localized edits can opt into an exact protected boundary when preservation is more important than natural generative blending.
 
 The v0.1 promise is:
 
-> Upload an image, indicate the intended focus, review a complete AI edit, accept or undo it, and export the chosen version.
+> Upload an image, make a focused edit or transform the complete image, review the proposal, accept or undo it, and export the chosen version.
 
 The project initially targets normal users rather than professional design workflows.
 
 ## Current state
 
-The editor supports PNG/JPEG upload, pan and zoom, conservatively cleaned Lasso selection with internal Add/Subtract refinement, direct non-destructive paint drafts, draft-only erasing, deterministic selection recoloring, and generative Remove/Replace/Restyle operations. The image-first workspace gives each canvas tool one job: Lasso owns selection edits and generation, Brush paints, Eraser corrects pending paint, and Hand pans without an inspector. Replace requests use a low-cost multimodal intent planner to turn short instructions into scene-aware structured plans before image generation. Generative editing uses provider-neutral server boundaries, deterministic fake implementations by default, and optional OpenAI adapters. The complete normalized provider candidate is the default review preview; an explicit protected mode retains exact mask compositing. Each request creates a reproducible diagnostic bundle with its timeline, masks, provider calls, prompts, plan, candidate-scope analysis, change map, and final preview. Accepted operations, versions, and masks form linear immutable history with undo/redo, and projects can be saved to local SQLite metadata plus immutable filesystem assets, reopened, and exported as PNG or JPEG.
+The editor supports PNG/JPEG upload, pan and zoom, conservatively cleaned Lasso selection with internal Add/Subtract refinement, direct non-destructive paint drafts, draft-only erasing, deterministic selection recoloring, generative Remove/Replace/Restyle operations, and preset-driven full-image Transform. The image-first workspace gives each canvas tool one job: Lasso owns selection edits and generation, Brush paints, Eraser corrects pending paint, and Hand pans without an inspector; Transform remains image-wide but is exposed as a first-class tool-rail action whose options occupy the contextual inspector. Rail icons reveal their full names on hover or keyboard focus. Replace requests use a low-cost multimodal intent planner to turn short instructions into scene-aware structured plans before image generation. Generative Transform uses a separate source-content planner, deterministic recipe construction, maskless image editing, and post-generation semantic fidelity validation. Generative editing uses provider-neutral server boundaries, deterministic fake implementations by default, and optional OpenAI adapters. The complete normalized provider candidate is the default review preview; an explicit protected mode retains exact mask compositing for localized edits. Each request creates a reproducible diagnostic bundle with its timeline, masks, provider calls, prompts, plans or recipe configuration, candidate analysis, Transform fidelity assessment, change map, and final preview. Accepted operations, versions, and masks form linear immutable history with undo/redo, and projects can be saved to local SQLite metadata plus immutable filesystem assets, reopened, and exported as PNG or JPEG.
 
 ## v0.1 scope
 
@@ -31,6 +31,7 @@ Upload → canvas → manual mask → local recolor → generative edit → hist
 - compact on-canvas selection feedback with edit configuration in the contextual inspector
 - deterministic recoloring
 - localized generative removal or restyling
+- full-image Monochrome, Sketch, Old Cartoon, Cinematic, Anime Theme, and custom transformations
 - complete generative candidate review with optional exact protected masking
 - preview acceptance and discard
 - linear undo, redo, and comparison
@@ -196,6 +197,8 @@ Preview
 | Remove object | Generative image editing |
 | Replace object | Generative image editing |
 | Change material | Generative image editing |
+| Plain monochrome conversion | Local processing |
+| Full-image visual transformation | Generative image editing with a versioned preset recipe |
 | Generate missing content | Generative image editing |
 
 For v0.1, the user selects the operation explicitly. Replace performs contextual interpretation inside that chosen operation; automatic classification between operations remains deferred.
@@ -218,6 +221,12 @@ Do not send only an isolated object in the initial implementation. The surroundi
 Replace sends a highlighted full-scene view, a highlighted selection detail, and the user's short instruction to an application-owned text-and-vision planner. The planner returns a validated representation, target, integration rules, constraints, exclusions, confidence, and diagnostic rationale. The application deterministically converts that plan into the image-editor instruction; rationale is never sent to image generation.
 
 The planner is text-only and cannot create image pixels. Planner failure stops the pipeline before the more expensive image request. Remove and Restyle continue directly to the image provider.
+
+### Full-image Transform
+
+Transform is an explicit global operation rather than a Lasso submode. It captures a versioned preset, optional user refinement, and a Faithful/Balanced/Imaginative preservation level, defaulting to Faithful. A Transform-specific vision planner describes the source subjects and composition without choosing a style; the server combines that plan with the resolved recipe to construct the image-editor instruction. The application creates a source-sized full-image effective mask for immutable history and diagnostics but intentionally omits an inpainting mask from the complete-image provider request.
+
+Plain Monochrome uses deterministic luminance conversion because it requires no invented pixels. Adding creative Monochrome direction routes through generation. Every generative Transform requests an explicit source-aligned output aspect, preserves the complete normalized candidate for review, records its resolved instruction and recipe version, and consumes one confirmed image request. A post-generation vision call compares source and candidate semantics. Faithful and Balanced block acceptance on semantic failure or unavailable validation while retaining the proposal for comparison and diagnostics; Imaginative remains manually reviewable.
 
 ### Candidate authority and protected compositing
 

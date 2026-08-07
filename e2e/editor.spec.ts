@@ -76,7 +76,7 @@ test("upload, select, and recolor an image", async ({ page }) => {
   await canvas.hover({ position: { x: bounds.width / 2, y: bounds.height / 2 } });
   await page.mouse.wheel(0, -300);
   await expect(canvas).not.toHaveAttribute("data-viewport-scale", scaleBefore!);
-  await page.getByRole("radio", { name: "Pan" }).click();
+  await page.getByRole("radio", { name: "Hand" }).click();
   await expect(page.getByLabel("Size")).toHaveCount(0);
   await expect(page.getByLabel("Softness")).toHaveCount(0);
   const viewportBefore = await canvas.getAttribute("data-viewport-x");
@@ -154,6 +154,54 @@ test("brush paint is draft-only until applied and eraser only clears that draft"
   await page.keyboard.press("l");
   await expect(page.getByRole("radio", { name: "Lasso" })).toBeChecked();
   await expect(page.getByTestId("editor-inspector")).toBeVisible();
+});
+
+test("Transform works without a selection for local and generative presets", async ({ page }) => {
+  const projectName = `Transform project ${Date.now()}`;
+  await page.goto("/");
+  await uploadTestImage(page);
+
+  const toolRail = page.getByRole("complementary", { name: "Editor tools" });
+  for (const label of ["Lasso", "Brush", "Eraser", "Hand", "Transform"]) {
+    await toolRail.getByLabel(label, { exact: true }).hover();
+    await expect(toolRail.locator(`[data-tooltip="${label}"]`)).toBeVisible();
+  }
+  await toolRail.getByLabel("Collapse inspector").hover();
+  await expect(toolRail.locator('[data-tooltip="Collapse inspector"]')).toBeVisible();
+  await toolRail.getByTestId("open-transform").click();
+  const transform = page.getByTestId("transform-inspector");
+  await expect(transform).toBeVisible();
+  await expect(transform.getByText("5 presets + custom")).toBeVisible();
+  await expect(transform.getByRole("radio", { name: "Faithful" })).toBeChecked();
+  await transform.getByRole("radio", { name: /Monochrome/ }).click();
+  await expect(transform.getByText(/no model call/i)).toBeVisible();
+  await transform.getByTestId("generate-transform").click();
+  await expect(page.getByTestId("preview-comparison")).toBeVisible();
+  await page.getByTestId("accept-preview").click();
+  await expect(page.getByText("1 accepted edit", { exact: true })).toBeVisible();
+
+  await page.getByTestId("undo").click();
+  await page.keyboard.press("t");
+  await transform.getByRole("radio", { name: /Anime Theme/ }).click();
+  await transform.getByLabel("Transformation prompt").fill("Warm nostalgic evening light");
+  await transform.getByRole("radio", { name: "Faithful" }).click();
+  await transform.getByLabel("Development scenario").selectOption("success");
+  await transform.getByTestId("generate-transform").click();
+  await expect(page.getByTestId("preview-comparison")).toBeVisible();
+  await expect(transform.getByTestId("generate-transform")).toBeDisabled();
+  await expect(transform.getByText("Review on canvas")).toBeVisible();
+  await page.getByRole("button", { name: "Adjust" }).click();
+  await expect(transform).toBeVisible();
+  await expect(transform.getByLabel("Transformation prompt")).toHaveValue("Warm nostalgic evening light");
+  await transform.getByTestId("generate-transform").click();
+  await expect(page.getByTestId("preview-comparison")).toBeVisible();
+  await page.getByTestId("accept-preview").click();
+  await expect(page.getByText("1 accepted edit", { exact: true })).toBeVisible();
+  await page.getByLabel("Project name").fill(projectName);
+  await page.getByRole("button", { name: "Save" }).click();
+  await page.reload();
+  await page.getByLabel("Open saved project").selectOption({ label: projectName });
+  await expect(page.getByText("1 accepted edit", { exact: true })).toBeVisible();
 });
 
 test("fake provider supports generative success, retry, and failure states", async ({ page }) => {

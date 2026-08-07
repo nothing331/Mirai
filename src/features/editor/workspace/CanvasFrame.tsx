@@ -2,12 +2,14 @@
 
 import dynamic from "next/dynamic";
 import Image from "next/image";
-import { Check, Focus, ImagePlus, LoaderCircle, X } from "lucide-react";
+import { Check, Focus, ImagePlus, LoaderCircle, SlidersHorizontal, X } from "lucide-react";
 import type { ChangeEvent } from "react";
 import { useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { blocksReplaceReviewAcceptance } from "@/shared/edit-boundary";
 import type { CandidateAnalysis, EditBoundaryPolicy } from "@/shared/edit-boundary";
+import { blocksTransformAcceptance } from "@/shared/transform-fidelity";
+import type { TransformFidelityAssessment } from "@/shared/transform-fidelity";
 import { getCurrentVersion, useEditorStore } from "../store";
 import type { BusyAction, ComparisonBase } from "./workspace-types";
 
@@ -16,7 +18,7 @@ const EditorCanvas = dynamic(() => import("../EditorCanvas").then((module) => mo
   loading: () => <div className="absolute inset-0 grid place-items-center font-mono text-xs text-white">Preparing canvas…</div>,
 });
 
-export function CanvasFrame({ busyAction, onUpload }: { busyAction: BusyAction; onUpload: (event: ChangeEvent<HTMLInputElement>) => void }) {
+export function CanvasFrame({ busyAction, onUpload, onAdjustTransform }: { busyAction: BusyAction; onUpload: (event: ChangeEvent<HTMLInputElement>) => void; onAdjustTransform: () => void }) {
   const [compareWith, setCompareWith] = useState<ComparisonBase>("original");
   const state = useEditorStore(useShallow((editor) => ({
     currentVersion: getCurrentVersion(editor),
@@ -45,11 +47,14 @@ export function CanvasFrame({ busyAction, onUpload }: { busyAction: BusyAction; 
             baseLabel={compareWith === "previous" ? "Previous" : "Original"}
             originalUrl={comparisonVersion.dataUrl}
             previewUrl={state.preview.dataUrl}
-            boundaryPolicy={state.preview.method === "generative" ? state.preview.parameters.boundaryPolicy : null}
+            boundaryPolicy={state.preview.method === "generative" && state.preview.type !== "transform" ? state.preview.parameters.boundaryPolicy : null}
             candidateAnalysis={state.preview.method === "generative" ? state.preview.parameters.candidateAnalysis : null}
-            acceptanceBlocked={state.preview.method === "generative" ? blocksReplaceReviewAcceptance(state.preview.type, state.preview.parameters.boundaryPolicy, state.preview.parameters.candidateAnalysis) : false}
+            transformFidelityAssessment={state.preview.method === "generative" && state.preview.type === "transform" ? state.preview.parameters.transformFidelityAssessment : null}
+            transformPreview={state.preview.type === "transform"}
+            acceptanceBlocked={state.preview.method === "generative" ? state.preview.type === "transform" ? blocksTransformAcceptance(state.preview.parameters.preservationMode, state.preview.parameters.transformFidelityAssessment) : blocksReplaceReviewAcceptance(state.preview.type, state.preview.parameters.boundaryPolicy, state.preview.parameters.candidateAnalysis) : false}
             onAccept={state.acceptPreview}
             onDiscard={state.discardPreview}
+            onAdjustTransform={onAdjustTransform}
           />
         ) : state.currentVersion && state.selectionMask ? (
           <EditorCanvas version={state.currentVersion} mask={state.selectionMask} color={state.color} viewResetKey={state.viewResetKey} />
@@ -95,15 +100,18 @@ function ProjectLoadingOverlay() {
 }
 
 /** Shows the immutable base and unaccepted candidate before history advances. */
-function PreviewComparison({ baseLabel, originalUrl, previewUrl, boundaryPolicy, candidateAnalysis, acceptanceBlocked, onAccept, onDiscard }: {
+function PreviewComparison({ baseLabel, originalUrl, previewUrl, boundaryPolicy, candidateAnalysis, transformFidelityAssessment, transformPreview, acceptanceBlocked, onAccept, onDiscard, onAdjustTransform }: {
   baseLabel: string;
   originalUrl: string;
   previewUrl: string;
   boundaryPolicy: EditBoundaryPolicy | null;
   candidateAnalysis: CandidateAnalysis | null;
+  transformFidelityAssessment: TransformFidelityAssessment | null;
+  transformPreview: boolean;
   acceptanceBlocked: boolean;
   onAccept: () => boolean;
   onDiscard: () => void;
+  onAdjustTransform: () => void;
 }) {
   return (
     <div className="preview-enter absolute inset-0 grid grid-rows-[auto_1fr_auto] bg-[#151513] p-2 sm:p-3" data-testid="preview-comparison">
@@ -124,8 +132,10 @@ function PreviewComparison({ baseLabel, originalUrl, previewUrl, boundaryPolicy,
         </figure>
       </div>
       <div className="flex flex-col gap-2 pt-2 sm:pt-3">
-        {acceptanceBlocked && <p className="bg-[#4a1f1a] px-3 py-2 font-mono text-[9px] leading-relaxed text-[#ffb5a7]" role="alert" data-testid="replace-scope-mismatch">Scope mismatch: most changes landed outside the selected target. Discard and generate again, or switch to protected mode.</p>}
+        {transformFidelityAssessment && transformFidelityAssessment.verdict !== "pass" && <p className={transformFidelityAssessment.verdict === "block" ? "bg-[#4a1f1a] px-3 py-2 font-mono text-[9px] leading-relaxed text-[#ffb5a7]" : "bg-[#443914] px-3 py-2 font-mono text-[9px] leading-relaxed text-[#ffe78a]"} role="alert" data-testid="transform-fidelity-assessment"><strong className="block uppercase">Transform fidelity {transformFidelityAssessment.verdict}</strong>{transformFidelityAssessment.explanation}</p>}
+        {acceptanceBlocked && !transformFidelityAssessment && <p className="bg-[#4a1f1a] px-3 py-2 font-mono text-[9px] leading-relaxed text-[#ffb5a7]" role="alert" data-testid="replace-scope-mismatch">Scope mismatch: most changes landed outside the selected target. Discard and generate again, or switch to protected mode.</p>}
         <div className="flex justify-end gap-2">
+          {transformPreview && <button type="button" className="flex h-9 items-center gap-2 px-3 text-xs font-bold text-white/75 outline-none hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white" onClick={onAdjustTransform}><SlidersHorizontal className="size-4" />Adjust</button>}
           <button type="button" className="flex h-9 items-center gap-2 px-3 text-xs font-bold text-white/75 outline-none hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white" onClick={onDiscard}><X className="size-4" />Discard</button>
           <button type="button" data-testid="accept-preview" className="flex h-9 items-center gap-2 bg-acid px-3 text-xs font-bold text-ink outline-none hover:bg-white focus-visible:ring-2 focus-visible:ring-acid disabled:cursor-not-allowed disabled:bg-white/20 disabled:text-white/40" disabled={acceptanceBlocked} onClick={onAccept}><Check className="size-4" />Accept edit</button>
         </div>

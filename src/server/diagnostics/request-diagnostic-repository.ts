@@ -227,11 +227,13 @@ export function normalizeDiagnosticManifest(value: unknown): RequestDiagnosticMa
   };
   return {
     ...(manifest as RequestDiagnosticManifest),
-    schemaVersion: 3,
+    schemaVersion: 4,
     boundaryPolicy: manifest.boundaryPolicy ?? "protected",
     previewSource: manifest.previewSource ?? null,
     plannerInstruction: manifest.plannerInstruction ?? null,
     editPlan: manifest.editPlan ?? null,
+    transformPlan: manifest.transformPlan ?? null,
+    transformFidelityAssessment: manifest.transformFidelityAssessment ?? null,
     candidateAnalysis: manifest.candidateAnalysis ?? null,
     providerCalls: manifest.providerCalls ?? [],
   };
