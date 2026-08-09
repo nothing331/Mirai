@@ -2,7 +2,7 @@ import sharp from "sharp";
 import { configuredProviderName, createExtendProvider } from "@/server/ai/provider-factory";
 import { buildExtendInstruction } from "@/server/ai/extend-instruction";
 import { startRequestDiagnostics } from "@/server/diagnostics/request-diagnostic-service";
-import { extendSceneAnalysisSchema, type SmartReframePlan } from "@/shared/extend-plan";
+import { extendSceneAnalysisSchema, preservesProtectedExtendContent, type ExtendSceneAnalysis, type SmartReframePlan } from "@/shared/extend-plan";
 import { getExtendPreset } from "@/shared/extend-presets";
 import { ImageProviderError } from "@/server/ai/contracts";
 
@@ -23,7 +23,7 @@ export async function POST(request: Request) {
     const imagePng = new Uint8Array(await image.arrayBuffer());
     const metadata = await sharp(imagePng).metadata();
     if (!metadata.width || !metadata.height || metadata.format !== "png") return error("The source image must be a valid PNG.");
-    validatePlan(plan, metadata.width, metadata.height);
+    validatePlan(plan, analysis, metadata.width, metadata.height);
     const instruction = buildExtendInstruction(plan, analysis, prompt);
     await diagnostics?.requestMetadata({ operation: "extend", boundaryPolicy: "review", userPrompt: prompt, sourceDimensions: { width: metadata.width, height: metadata.height } });
     await diagnostics?.artifact("source-input.png", imagePng, "image/png");
@@ -56,14 +56,16 @@ export async function POST(request: Request) {
   }
 }
 
-function validatePlan(plan: SmartReframePlan, width: number, height: number) {
-  if (!plan || plan.schemaVersion !== 1 || !getExtendPreset(plan.presetId, plan.presetVersion)) throw new Error("The Smart Reframe plan is invalid.");
+function validatePlan(plan: SmartReframePlan, analysis: ExtendSceneAnalysis, width: number, height: number) {
+  if (!plan || (plan.schemaVersion !== 1 && plan.schemaVersion !== 2) || !getExtendPreset(plan.presetId, plan.presetVersion)) throw new Error("The Smart Reframe plan is invalid.");
+  if (plan.schemaVersion === 2 && (!plan.decision || plan.decision.solverVersion !== 2)) throw new Error("The Smart Reframe solver decision is missing.");
   const crop = plan.sourceCrop;
   if (plan.inputWidth !== width || plan.inputHeight !== height) throw new Error("The Smart Reframe plan belongs to a different source image.");
   if (![crop.x, crop.y, crop.width, crop.height, plan.outputWidth, plan.outputHeight].every(Number.isInteger)) throw new Error("The Smart Reframe plan must use integer pixels.");
   if (crop.x < 0 || crop.y < 0 || crop.width <= 0 || crop.height <= 0 || crop.x + crop.width > width || crop.y + crop.height > height) throw new Error("The Smart Reframe source crop is outside the image.");
   if (plan.sourcePlacement.x < 0 || plan.sourcePlacement.y < 0 || plan.sourcePlacement.x + crop.width > plan.outputWidth || plan.sourcePlacement.y + crop.height > plan.outputHeight) throw new Error("The Smart Reframe placement is outside the output canvas.");
   if (plan.sourcePlacement.width !== crop.width || plan.sourcePlacement.height !== crop.height) throw new Error("Extend cannot rescale the retained source image.");
+  if (!preservesProtectedExtendContent(plan, analysis)) throw new Error("The Smart Reframe crop would remove protected subjects or text.");
   const preset = getExtendPreset(plan.presetId, plan.presetVersion)!;
   if (plan.outputWidth * preset.ratio[1] !== plan.outputHeight * preset.ratio[0]) throw new Error("The Extend output does not match the selected format.");
 }

@@ -34,7 +34,7 @@ export async function POST(request: Request) {
     const plan = solveSmartReframe({ width: metadata.width, height: metadata.height, presetId, presetVersion: 1, ratio: preset.ratio, strategy: strategy as ExtendStrategy, analysis });
     await diagnostics?.artifact("extend-scene-analysis.json", jsonBytes(analysis), "application/json");
     await diagnostics?.artifact("extend-plan.json", jsonBytes(plan), "application/json");
-    await diagnostics?.metadata({ configuration: { extendPreset: presetId, extendStrategy: strategy, cachedSceneAnalysis: Boolean(cached) } });
+    await diagnostics?.metadata({ configuration: { extendPreset: presetId, extendStrategy: strategy, cachedSceneAnalysis: Boolean(cached), extendSolverVersion: plan.decision?.solverVersion ?? 1, extendCropAxis: plan.decision?.axis ?? "legacy", extendPreferredCropSize: plan.decision?.preferredCropSize ?? 0, extendMinimumSafeSize: plan.decision?.minimumSafeSize ?? 0, extendChosenCropSize: plan.decision?.chosenCropSize ?? 0, extendCropCandidateCount: plan.decision?.candidateCount ?? 0, extendCropFallback: plan.decision?.fallbackReason ?? "none" } });
     await diagnostics?.succeed(plannerResult?.providerRequestId ?? null);
     return Response.json({ analysis, plan });
   } catch (cause) {
