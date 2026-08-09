@@ -15,22 +15,23 @@ export async function requestExtendPlan(version: ImageVersion, input: ExtendInpu
   return { analysis: payload.analysis, plan: payload.plan };
 }
 
-export async function requestExtendCandidate(version: ImageVersion, input: ExtendInput, analysis: ExtendSceneAnalysis, plan: SmartReframePlan, projectId: string) {
+export async function requestExtendCandidate(version: ImageVersion, input: ExtendInput, analysis: ExtendSceneAnalysis, plan: SmartReframePlan, projectId: string, onPhase?: (phase: "sending" | "generating" | "preparing") => void) {
   const requestId = crypto.randomUUID();
+  onPhase?.("sending");
   const form = new FormData();
   form.set("image", await imageFile(version));
   form.set("prompt", input.userPrompt.trim());
   form.set("analysis", JSON.stringify(analysis));
   form.set("plan", JSON.stringify(plan));
+  onPhase?.("generating");
   const response = await fetch("/api/image-extends/generate", { method: "POST", headers: { "x-project-id": projectId, "x-request-id": requestId }, body: form });
-  const payload = await response.json() as { candidateBase64?: string; effectiveMaskBase64?: string; providerRequestId?: string; resolvedInstruction?: string; width?: number; height?: number; error?: string };
-  if (!response.ok || !payload.candidateBase64 || !payload.effectiveMaskBase64 || !payload.providerRequestId || !payload.width || !payload.height) throw new Error(payload.error ?? "Image extension failed.");
+  onPhase?.("preparing");
+  const payload = await response.json() as { candidateBase64?: string; providerRequestId?: string; resolvedInstruction?: string; width?: number; height?: number; error?: string };
+  if (!response.ok || !payload.candidateBase64 || !payload.providerRequestId || !payload.width || !payload.height) throw new Error(payload.error ?? "Image extension failed.");
   const candidate = await decodeBase64(payload.candidateBase64, "candidate.png");
-  const maskImage = await decodeBase64(payload.effectiveMaskBase64, "mask.png");
-  if (candidate.width !== payload.width || candidate.height !== payload.height || maskImage.width !== payload.width || maskImage.height !== payload.height) throw new Error("The Extend result dimensions are invalid.");
-  const mask: ProcessingMask = { width: maskImage.width, height: maskImage.height, data: new Uint8ClampedArray(maskImage.width * maskImage.height) };
-  for (let index = 0; index < mask.data.length; index += 1) mask.data[index] = maskImage.pixels[index * 4 + 3];
-  await uploadExtendPreview(projectId, requestId, candidate.dataUrl);
+  if (candidate.width !== payload.width || candidate.height !== payload.height) throw new Error("The Extend result dimensions are invalid.");
+  const mask: ProcessingMask = { width: candidate.width, height: candidate.height, data: new Uint8ClampedArray(candidate.width * candidate.height).fill(255) };
+  void uploadExtendPreview(projectId, requestId, candidate.dataUrl);
   return { ...candidate, mask, providerRequestId: payload.providerRequestId, diagnosticRequestId: requestId, resolvedInstruction: payload.resolvedInstruction ?? input.userPrompt };
 }
 
@@ -48,8 +49,9 @@ async function uploadExtendPreview(projectId: string, requestId: string, dataUrl
   try {
     const form = new FormData();
     form.set("finalPreview", new File([await (await fetch(dataUrl)).blob()], "final-preview.png", { type: "image/png" }));
-    form.set("boundaryPolicy", "protected");
-    await fetch(`/api/request-logs/${encodeURIComponent(requestId)}/client-artifacts`, { method: "POST", headers: { "x-project-id": projectId }, body: form });
+    form.set("boundaryPolicy", "review");
+    const response = await fetch(`/api/request-logs/${encodeURIComponent(requestId)}/client-artifacts`, { method: "POST", headers: { "x-project-id": projectId }, body: form });
+    if (!response.ok) throw new Error(`Extend preview diagnostics failed with status ${response.status}.`);
     window.dispatchEvent(new CustomEvent("request-diagnostic-updated", { detail: { requestId } }));
   } catch (error) {
     console.error(`[diagnostics:${requestId}] Extend final preview was not recorded.`, error);

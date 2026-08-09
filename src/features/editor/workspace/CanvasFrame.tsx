@@ -59,8 +59,8 @@ export function CanvasFrame({ busyAction, onUpload, extendSelected, onAdjustTran
             onAdjustTransform={onAdjustTransform}
             onAdjustExtend={onAdjustExtend}
           />
-        ) : extendSelected && state.currentVersion && state.extendState.status === "planned" ? (
-          <ExtendPlanCanvas imageUrl={state.currentVersion.dataUrl} imageWidth={state.currentVersion.width} imageHeight={state.currentVersion.height} plan={state.extendState.plan} />
+        ) : extendSelected && state.currentVersion && (state.extendState.status === "planned" || state.extendState.status === "generating") ? (
+          <ExtendPlanCanvas imageUrl={state.currentVersion.dataUrl} imageWidth={state.currentVersion.width} imageHeight={state.currentVersion.height} plan={state.extendState.plan} processingPhase={state.extendState.status === "generating" ? state.extendState.phase : null} />
         ) : state.currentVersion && state.selectionMask ? (
           <EditorCanvas version={state.currentVersion} mask={state.selectionMask} color={state.color} viewResetKey={state.viewResetKey} />
         ) : (
@@ -120,22 +120,23 @@ function PreviewComparison({ baseLabel, originalUrl, previewUrl, boundaryPolicy,
   onAdjustTransform: () => void;
   onAdjustExtend: () => void;
 }) {
+  const reviewLabel = boundaryPolicy
+    ? boundaryPolicy === "review" ? "Complete AI proposal" : "Protected-mask composite"
+    : extendPreview ? "Complete AI extension" : transformPreview ? "Full-image transformation" : "Edit proposal";
   return (
     <div className="preview-enter absolute inset-0 grid grid-rows-[auto_1fr_auto] bg-[#151513] p-2 sm:p-3" data-testid="preview-comparison">
-      {boundaryPolicy && (
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-1 font-mono text-[8px] uppercase tracking-wider text-white/65 sm:mb-3">
-          <span>{boundaryPolicy === "review" ? "Complete AI proposal" : "Protected-mask composite"}</span>
-          {candidateAnalysis && <span className={candidateAnalysis.changedOutsideSelectionPixels > 0 ? "text-[#ffb5a7]" : "text-acid"}>{candidateAnalysis.changedOutsideSelectionPixels > 0 ? `${Math.round(candidateAnalysis.changedOutsideSelectionRatio * 1000) / 10}% outside focus changed` : "Changes stayed inside focus"}</span>}
-        </div>
-      )}
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-1 font-mono text-[8px] uppercase tracking-wider text-white/65 sm:mb-3">
+        <span>{reviewLabel}</span>
+        {candidateAnalysis && <span className={candidateAnalysis.changedOutsideSelectionPixels > 0 ? "text-[#ffb5a7]" : "text-acid"}>{candidateAnalysis.changedOutsideSelectionPixels > 0 ? `${Math.round(candidateAnalysis.changedOutsideSelectionRatio * 1000) / 10}% outside focus changed` : "Changes stayed inside focus"}</span>}
+      </div>
       <div className="grid min-h-0 grid-cols-2 gap-2 sm:gap-3">
         <figure className="grid min-h-0 grid-rows-[auto_1fr] bg-black/15 ring-1 ring-white/15">
           <figcaption className="px-3 py-2 font-mono text-[9px] uppercase tracking-wider text-white/65">{baseLabel}</figcaption>
-          <div className="relative min-h-0"><Image src={originalUrl} alt="Original image" fill unoptimized className="object-contain" /></div>
+          <div className="relative min-h-0 overflow-hidden" data-testid="comparison-source"><Image src={originalUrl} alt={`${baseLabel} image`} fill unoptimized sizes="50vw" className="object-contain" /></div>
         </figure>
         <figure className="grid min-h-0 grid-rows-[auto_1fr] bg-black/15 ring-1 ring-acid">
           <figcaption className="px-3 py-2 font-mono text-[9px] uppercase tracking-wider text-acid">Preview</figcaption>
-          <div className="relative min-h-0"><Image src={previewUrl} alt="Recolor preview" fill unoptimized className="object-contain" /></div>
+          <div className="relative min-h-0 overflow-hidden" data-testid="comparison-candidate"><Image src={previewUrl} alt="Generated preview" fill unoptimized sizes="50vw" className="object-contain" /></div>
         </figure>
       </div>
       <div className="flex flex-col gap-2 pt-2 sm:pt-3">
@@ -152,9 +153,10 @@ function PreviewComparison({ baseLabel, originalUrl, previewUrl, boundaryPolicy,
   );
 }
 
-function ExtendPlanCanvas({ imageUrl, imageWidth, imageHeight, plan }: { imageUrl: string; imageWidth: number; imageHeight: number; plan: import("@/shared/extend-plan").SmartReframePlan }) {
+function ExtendPlanCanvas({ imageUrl, imageWidth, imageHeight, plan, processingPhase }: { imageUrl: string; imageWidth: number; imageHeight: number; plan: import("@/shared/extend-plan").SmartReframePlan; processingPhase: "sending" | "generating" | "preparing" | null }) {
   const placement = plan.sourcePlacement;
   const crop = plan.sourceCrop;
+  const processingLabel = processingPhase === "sending" ? "Preparing source" : processingPhase === "preparing" ? "Preparing comparison" : processingPhase === "generating" ? "Generating surroundings" : null;
   return (
     <div className="absolute inset-0 grid place-items-center p-8" data-testid="extend-plan-canvas">
       <div className="relative max-h-full max-w-full overflow-hidden bg-[repeating-linear-gradient(135deg,#2d2d2a_0,#2d2d2a_8px,#252522_8px,#252522_16px)] ring-1 ring-acid shadow-[8px_8px_0_rgba(216,244,65,.18)]" style={{ aspectRatio: `${plan.outputWidth}/${plan.outputHeight}`, width: plan.outputWidth >= plan.outputHeight ? "min(82%,1000px)" : "auto", height: plan.outputHeight > plan.outputWidth ? "min(82%,720px)" : "auto" }}>
@@ -164,6 +166,15 @@ function ExtendPlanCanvas({ imageUrl, imageWidth, imageHeight, plan }: { imageUr
         <div className="pointer-events-none absolute inset-0 border border-acid/70" />
         <span className="absolute bottom-2 right-2 bg-ink/85 px-2 py-1 font-mono text-[8px] uppercase tracking-[.1em] text-acid">{plan.outputWidth} × {plan.outputHeight}</span>
       </div>
+      {processingLabel && (
+        <div className="absolute inset-0 grid place-items-center bg-[#151513]/72 text-paper backdrop-blur-[2px]" role="status" aria-live="polite" data-testid="extend-processing-overlay">
+          <div className="grid justify-items-center gap-3 border border-white/20 bg-[#151513] px-7 py-5 shadow-[6px_6px_0_rgba(216,244,65,.3)]">
+            <LoaderCircle className="size-6 animate-spin text-acid" />
+            <strong className="text-sm">{processingLabel}</strong>
+            <span className="font-mono text-[8px] uppercase tracking-[.14em] text-white/55">The planned frame stays fixed</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

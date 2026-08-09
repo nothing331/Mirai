@@ -24,7 +24,7 @@ const visualArtifacts: Array<{ name: DiagnosticArtifactName; label: string; note
   { name: "provider-input.png", label: "06 / Provider input", note: "Resized image sent to the image editor" },
   { name: "provider-mask.png", label: "07 / Provider mask", note: "Provider-format transparency mask" },
   { name: "provider-candidate-raw.png", label: "08 / Raw candidate", note: "Unmodified image-editor response" },
-  { name: "candidate-normalized.png", label: "09 / Normalized", note: "Candidate restored to source dimensions" },
+  { name: "candidate-normalized.png", label: "09 / Normalized", note: "Provider candidate normalized to the requested editor dimensions" },
   { name: "change-map.png", label: "10 / Change map", note: "Material candidate differences measured without altering the result" },
   { name: "final-preview.png", label: "11 / Final preview", note: "Complete candidate or protected composite according to the recorded policy" },
 ];
@@ -321,6 +321,8 @@ export function DiagnosticsDrawer({ projectId, focusRequestId, open, onClose }: 
                       {manifest.artifacts["transform-plan.json"] && <a className="inline-flex border-b border-ink font-mono text-[10px] uppercase tracking-wider hover:bg-acid" href={diagnosticArtifactUrl(manifest.requestId, "transform-plan.json")} target="_blank" rel="noreferrer">Open Transform plan ↗</a>}
                       {manifest.artifacts["transform-assessment.json"] && <a className="inline-flex border-b border-ink font-mono text-[10px] uppercase tracking-wider hover:bg-acid" href={diagnosticArtifactUrl(manifest.requestId, "transform-assessment.json")} target="_blank" rel="noreferrer">Open fidelity assessment ↗</a>}
                       {manifest.artifacts["transform-validator-response.json"] && <a className="inline-flex border-b border-ink font-mono text-[10px] uppercase tracking-wider hover:bg-acid" href={diagnosticArtifactUrl(manifest.requestId, "transform-validator-response.json")} target="_blank" rel="noreferrer">Open validator response ↗</a>}
+                      {manifest.artifacts["extend-scene-analysis.json"] && <a className="inline-flex border-b border-ink font-mono text-[10px] uppercase tracking-wider hover:bg-acid" href={diagnosticArtifactUrl(manifest.requestId, "extend-scene-analysis.json")} target="_blank" rel="noreferrer">Open Extend analysis ↗</a>}
+                      {manifest.artifacts["extend-plan.json"] && <a className="inline-flex border-b border-ink font-mono text-[10px] uppercase tracking-wider hover:bg-acid" href={diagnosticArtifactUrl(manifest.requestId, "extend-plan.json")} target="_blank" rel="noreferrer">Open Extend plan ↗</a>}
                       {manifest.artifacts["provider-response.json"] && <a className="inline-flex border-b border-ink font-mono text-[10px] uppercase tracking-wider hover:bg-acid" href={diagnosticArtifactUrl(manifest.requestId, "provider-response.json")} target="_blank" rel="noreferrer">Open image response ↗</a>}
                       {manifest.artifacts["candidate-analysis.json"] && <a className="inline-flex border-b border-ink font-mono text-[10px] uppercase tracking-wider hover:bg-acid" href={diagnosticArtifactUrl(manifest.requestId, "candidate-analysis.json")} target="_blank" rel="noreferrer">Open candidate analysis ↗</a>}
                     </div>

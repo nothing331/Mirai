@@ -96,6 +96,26 @@ describe("filled selection preview and acceptance", () => {
     expect(useEditorStore.getState().selectionMask).toMatchObject({ width: 3, height: 1 });
   });
 
+  it("reuses scene analysis and solves later Extend presets without another planning request", async () => {
+    const analysis = {
+      primarySubjects: [{ label: "subject", bounds: { x: 0.3, y: 0.1, width: 0.4, height: 0.8 }, importance: 1, touchesEdge: false, mustPreserve: true }],
+      secondarySubjects: [], textRegions: [], horizonY: null, visualCenter: { x: 0.5, y: 0.5 }, negativeSpaceRegions: [],
+      edgeContinuation: { top: "sky", right: "wall", bottom: "floor", left: "wall" }, confidence: 0.9, warnings: [],
+    };
+    const firstPlan = {
+      schemaVersion: 1 as const, strategy: "smart" as const, presetId: "instagram-classic" as const, presetVersion: 1 as const, inputWidth: 3, inputHeight: 1,
+      sourceCrop: { x: 0, y: 0, width: 3, height: 1 }, sourcePlacement: { x: 1, y: 1, width: 3, height: 1 }, outputWidth: 4, outputHeight: 5,
+      expansionInsets: { top: 1, right: 0, bottom: 3, left: 1 }, seamWidth: 1, cropAreaRatio: 0, generatedAreaRatio: 0.85, confidence: 0.9, rationale: ["Kept source"], warnings: [],
+    };
+    vi.mocked(requestExtendPlan).mockResolvedValue({ analysis, plan: firstPlan });
+
+    await useEditorStore.getState().planExtend({ presetId: "instagram-classic", presetVersion: 1, strategy: "smart", userPrompt: "" });
+    await useEditorStore.getState().planExtend({ presetId: "instagram-square", presetVersion: 1, strategy: "smart", userPrompt: "" });
+
+    expect(requestExtendPlan).toHaveBeenCalledTimes(1);
+    expect(useEditorStore.getState().extendState).toMatchObject({ status: "planned", input: { presetId: "instagram-square" }, plan: { schemaVersion: 2, presetId: "instagram-square" } });
+  });
+
   it("generative processing and preview do not advance history", async () => {
     useEditorStore.getState().fillSelection(firstPixelContour);
     useEditorStore.getState().setEditType("remove");

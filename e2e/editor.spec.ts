@@ -221,7 +221,19 @@ test("Extend plans a target frame before generating and accepts changed dimensio
   await expect(page.getByText("0 accepted edits", { exact: true })).toBeVisible();
 
   await inspector.getByRole("button", { name: "Generate extension" }).click();
+  await expect(page.getByTestId("extend-processing-overlay")).toBeVisible();
+  await expect(page.getByText(/Generating surroundings|Preparing comparison/).first()).toBeVisible();
   await expect(page.getByTestId("preview-comparison")).toBeVisible();
+  await expect(page.getByText("Complete AI extension")).toBeVisible();
+  await expect(page.getByTestId("comparison-source")).toBeVisible();
+  await expect(page.getByTestId("comparison-candidate")).toBeVisible();
+  await expect(page.getByRole("img", { name: "Original image" })).toBeVisible();
+  await expect(page.getByRole("img", { name: "Generated preview" })).toBeVisible();
+  await page.getByRole("button", { name: "Diagnostics" }).click();
+  const diagnostics = page.getByRole("dialog", { name: "Request diagnostics" });
+  await expect(diagnostics.getByRole("img", { name: "11 / Final preview" })).toBeVisible();
+  await expect(diagnostics.getByRole("link", { name: "Open Extend plan" })).toBeVisible();
+  await diagnostics.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByRole("button", { name: "Adjust frame" }).click();
   await expect(page.getByTestId("extend-plan-canvas")).toBeVisible();
   await inspector.getByRole("button", { name: "Generate extension" }).click();

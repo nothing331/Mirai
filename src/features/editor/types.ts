@@ -168,5 +168,5 @@ export type ExtendDraftState =
   | { status: "idle"; input: ExtendInput | null; analysis: ExtendSceneAnalysis | null; plan: null; error: null }
   | { status: "analyzing"; input: ExtendInput; analysis: ExtendSceneAnalysis | null; plan: null; error: null }
   | { status: "planned"; input: ExtendInput; analysis: ExtendSceneAnalysis; plan: SmartReframePlan; error: null }
-  | { status: "generating"; input: ExtendInput; analysis: ExtendSceneAnalysis; plan: SmartReframePlan; error: null }
+  | { status: "generating"; phase: "sending" | "generating" | "preparing"; input: ExtendInput; analysis: ExtendSceneAnalysis; plan: SmartReframePlan; error: null }
   | { status: "failed"; input: ExtendInput; analysis: ExtendSceneAnalysis | null; plan: SmartReframePlan | null; error: string };

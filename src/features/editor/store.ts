@@ -11,6 +11,8 @@ import { blocksReplaceReviewAcceptance } from "@/shared/edit-boundary";
 import { blocksTransformAcceptance, unavailableTransformFidelityAssessment } from "@/shared/transform-fidelity";
 import { requestExtendCandidate, requestExtendPlan } from "./extend-client";
 import type { EditBoundaryPolicy } from "@/shared/edit-boundary";
+import { solveSmartReframe, type ExtendSceneAnalysis } from "@/shared/extend-plan";
+import { getExtendPreset } from "@/shared/extend-presets";
 import type { EditOperation, EditPreview, EditType, ExtendDraftState, ExtendInput, FakeScenario, GenerativePreviewState, GenerativeRequestSnapshot, ImageVersion, LassoVisualization, MaskAsset, PaintSession, ProcessingMask, SelectionDiagnostics, SelectionMode, SourcePoint, Tool, TransformInput, Viewport } from "./types";
 
 interface EditorState {
@@ -28,6 +30,7 @@ interface EditorState {
   boundaryPolicy: EditBoundaryPolicy;
   generativeState: GenerativePreviewState;
   extendState: ExtendDraftState;
+  extendAnalysisCache: Record<string, ExtendSceneAnalysis>;
   selectionMask: ProcessingMask | null;
   selectionId: string | null;
   selectionMode: SelectionMode;
@@ -109,6 +112,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   preview: null,
   generativeState: idleGenerativeState,
   extendState: idleExtendState,
+  extendAnalysisCache: {},
   selectionMask: null,
   selectionId: null,
   selectionDiagnostics: null,
@@ -126,6 +130,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     preview: null,
     generativeState: idleGenerativeState,
     extendState: idleExtendState,
+    extendAnalysisCache: {},
     selectionMask: createMask(version.width, version.height),
     selectionId: crypto.randomUUID(),
     selectionDiagnostics: null,
@@ -149,6 +154,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       preview: null,
       generativeState: idleGenerativeState,
       extendState: idleExtendState,
+      extendAnalysisCache: {},
       lastRequestId: null,
       selectionMask: createMask(current.width, current.height),
       selectionId: crypto.randomUUID(),
@@ -390,12 +396,22 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return false;
     }
     const normalized: ExtendInput = { ...extendInput, userPrompt: extendInput.userPrompt.trim() };
-    const cachedAnalysis = state.extendState.analysis;
+    const cachedAnalysis = state.extendAnalysisCache[input.id] ?? null;
+    if (cachedAnalysis) {
+      const preset = getExtendPreset(normalized.presetId, normalized.presetVersion);
+      if (!preset) {
+        set({ error: "The selected Extend format is unavailable." });
+        return false;
+      }
+      const plan = solveSmartReframe({ width: input.width, height: input.height, presetId: normalized.presetId, presetVersion: normalized.presetVersion, ratio: preset.ratio, strategy: normalized.strategy, analysis: cachedAnalysis });
+      set({ extendState: { status: "planned", input: normalized, analysis: cachedAnalysis, plan, error: null }, preview: null, error: null });
+      return true;
+    }
     set({ extendState: { status: "analyzing", input: normalized, analysis: cachedAnalysis, plan: null, error: null }, preview: null, error: null });
     try {
       const result = await requestExtendPlan(input, normalized, cachedAnalysis, state.projectId!);
       if (get().currentVersionId !== input.id) return false;
-      set({ extendState: { status: "planned", input: normalized, analysis: result.analysis, plan: result.plan, error: null } });
+      set((current) => ({ extendState: { status: "planned", input: normalized, analysis: result.analysis, plan: result.plan, error: null }, extendAnalysisCache: { ...current.extendAnalysisCache, [input.id]: result.analysis } }));
       return true;
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Smart Reframe planning failed.";
@@ -408,9 +424,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const input = state.versions.find((version) => version.id === state.currentVersionId);
     if (!input || state.extendState.status !== "planned" || !state.projectId) return false;
     const draft = state.extendState;
-    set({ extendState: { ...draft, status: "generating" }, preview: null, error: null });
+    set({ extendState: { ...draft, status: "generating", phase: "sending" }, preview: null, error: null });
     try {
-      const candidate = await requestExtendCandidate(input, draft.input, draft.analysis, draft.plan, state.projectId);
+      const candidate = await requestExtendCandidate(input, draft.input, draft.analysis, draft.plan, state.projectId, (phase) => {
+        const current = get();
+        if (current.currentVersionId !== input.id || current.extendState.status !== "generating") return;
+        set({ extendState: { ...current.extendState, phase } });
+      });
       if (get().currentVersionId !== input.id) return false;
       const mask: MaskAsset = { id: crypto.randomUUID(), ...candidate.mask };
       set({
@@ -508,6 +528,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     return original ? {
       currentVersionId: original.id, versions: [original], operations: [], maskAssets: [], preview: null, paintSession: null, generativeState: idleGenerativeState,
       selectionMask: createMask(original.width, original.height), selectionId: crypto.randomUUID(), extendState: idleExtendState,
+      extendAnalysisCache: {},
       selectionDiagnostics: null, lassoVisualization: null,
       viewResetKey: state.viewResetKey + 1, error: null,
     } : {};

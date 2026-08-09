@@ -15,7 +15,12 @@ export function ExtendInspector({ onPlan, onGenerate, requestLimitReached }: { o
   const [userPrompt, setUserPrompt] = useState(extendState.input?.userPrompt ?? "");
   const selected = extendPresets.find((preset) => preset.id === presetId)!;
   const busy = extendState.status === "analyzing" || extendState.status === "generating";
-  const planned = extendState.status === "planned" && extendState.input.presetId === presetId && extendState.input.strategy === strategy && extendState.input.userPrompt === userPrompt.trim();
+  const hasCurrentPlan = (extendState.status === "planned" || extendState.status === "generating") && extendState.input.presetId === presetId && extendState.input.strategy === strategy && extendState.input.userPrompt === userPrompt.trim();
+  const processingLabel = extendState.status === "analyzing"
+    ? "Analyzing composition…"
+    : extendState.status === "generating"
+      ? extendState.phase === "sending" ? "Preparing source…" : extendState.phase === "preparing" ? "Preparing comparison…" : "Generating surroundings…"
+      : null;
 
   const input: ExtendInput = { presetId, presetVersion: 1, strategy, userPrompt };
   return (
@@ -53,7 +58,7 @@ export function ExtendInspector({ onPlan, onGenerate, requestLimitReached }: { o
           <textarea className="min-h-20 resize-y bg-[#e8e5dc] p-2.5 text-xs leading-relaxed text-ink outline-none placeholder:text-muted/55 focus:ring-2 focus:ring-accent" value={userPrompt} placeholder="Continue the forest with subtle morning fog…" onChange={(event) => setUserPrompt(event.target.value)} />
         </label>
 
-        {planned && extendState.plan && (
+        {hasCurrentPlan && extendState.plan && (
           <section className="grid gap-2 border-t border-line py-4" data-testid="extend-plan-summary">
             <span className="font-mono text-[8px] uppercase tracking-[.12em] text-muted">Frame ready</span>
             <strong className="text-xs">{extendState.plan.outputWidth} × {extendState.plan.outputHeight}px</strong>
@@ -66,11 +71,12 @@ export function ExtendInspector({ onPlan, onGenerate, requestLimitReached }: { o
       </div>
 
       <div className="grid gap-2 border-t border-line p-3">
-        {!planned ? (
-          <button type="button" className="flex h-10 items-center justify-center gap-2 bg-ink px-3 text-xs font-bold text-paper hover:text-acid disabled:opacity-40" disabled={busy} onClick={() => void onPlan({ ...input, userPrompt: userPrompt.trim() })}>{busy ? <LoaderCircle className="size-4 animate-spin" /> : <ScanSearch className="size-4" />}Preview smart frame</button>
+        {!hasCurrentPlan ? (
+          <button type="button" className="flex h-10 items-center justify-center gap-2 bg-ink px-3 text-xs font-bold text-paper hover:text-acid disabled:opacity-40" disabled={busy} onClick={() => void onPlan({ ...input, userPrompt: userPrompt.trim() })}>{busy ? <LoaderCircle className="size-4 animate-spin" /> : <ScanSearch className="size-4" />}{processingLabel ?? "Preview smart frame"}</button>
         ) : (
-          <button type="button" className="flex h-10 items-center justify-center gap-2 bg-acid px-3 text-xs font-bold text-ink hover:bg-ink hover:text-acid disabled:opacity-40" disabled={busy || requestLimitReached} onClick={() => void onGenerate()}>{busy ? <LoaderCircle className="size-4 animate-spin" /> : <Sparkles className="size-4" />}Generate extension</button>
+          <button type="button" className="flex h-10 items-center justify-center gap-2 bg-acid px-3 text-xs font-bold text-ink hover:bg-ink hover:text-acid disabled:opacity-40" disabled={busy || requestLimitReached} onClick={() => void onGenerate()}>{busy ? <LoaderCircle className="size-4 animate-spin" /> : <Sparkles className="size-4" />}{processingLabel ?? "Generate extension"}</button>
         )}
+        {processingLabel && <span className="sr-only" role="status" aria-live="polite">{processingLabel}</span>}
         <span className="flex items-center justify-center gap-1.5 font-mono text-[8px] uppercase tracking-[.1em] text-muted"><Expand className="size-3" />{selected.ratio[0]}:{selected.ratio[1]} · GPT Image 2 low</span>
       </div>
     </div>
