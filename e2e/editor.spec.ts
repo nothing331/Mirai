@@ -26,6 +26,7 @@ test("upload, select, and recolor an image", async ({ page }) => {
   await expect(page.getByText("20 × 20px")).toBeVisible();
   const canvas = page.getByTestId("editor-canvas");
   await expect(canvas).toBeVisible();
+  await expect.poll(async () => Number(await canvas.getAttribute("data-viewport-x"))).toBeGreaterThan(0);
   const bounds = await canvas.boundingBox();
   if (!bounds) throw new Error("Editor canvas has no visible bounds.");
   const initialX = Number(await canvas.getAttribute("data-viewport-x"));
@@ -99,6 +100,7 @@ test("fake provider supports generative success, retry, and failure states", asy
   });
   const canvas = page.getByTestId("editor-canvas");
   await expect(canvas).toBeVisible();
+  await expect.poll(async () => Number(await canvas.getAttribute("data-viewport-x"))).toBeGreaterThan(0);
   const imageX = Number(await canvas.getAttribute("data-viewport-x"));
   const imageY = Number(await canvas.getAttribute("data-viewport-y"));
   await page.getByRole("radio", { name: "Brush" }).click();
@@ -178,4 +180,99 @@ test("fake provider supports generative success, retry, and failure states", asy
   await expect(reopenedDiagnostics.getByRole("button", { name: `Request ID ${olderRequestId}` })).toBeVisible();
   await reopenedDiagnostics.getByRole("button", { name: "Refresh" }).click();
   await expect(reopenedDiagnostics.getByRole("button", { name: `Request ID ${olderRequestId}` })).toBeVisible();
+});
+
+test("local transform, text, and watermark tools create reversible persisted versions", async ({ page }) => {
+  const projectName = `Local tools ${Date.now()}`;
+  const browserProblems: string[] = [];
+  page.on("console", (message) => { if (message.type() === "error" || message.type() === "warning") browserProblems.push(message.text()); });
+  await page.goto("/");
+  await page.getByTestId("file-input").evaluate(async (input: HTMLInputElement) => {
+    const source = document.createElement("canvas");
+    source.width = 320; source.height = 200;
+    const context = source.getContext("2d")!;
+    context.fillStyle = "#237497"; context.fillRect(0, 0, 320, 200);
+    context.fillStyle = "#d8f441"; context.fillRect(40, 35, 130, 90);
+    context.fillStyle = "#ef4b32"; context.beginPath(); context.arc(245, 110, 52, 0, Math.PI * 2); context.fill();
+    const blob = await new Promise<Blob>((resolve) => source.toBlob((value) => resolve(value!), "image/png"));
+    const transfer = new DataTransfer(); transfer.items.add(new File([blob], "local-tools.png", { type: "image/png" }));
+    input.files = transfer.files; input.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await expect(page.getByText("320 × 200px", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Transform", exact: true }).click();
+  await page.getByLabel("Crop aspect ratio").selectOption("1:1");
+  await expect(page.getByLabel("Crop x")).toHaveValue("60");
+  await expect(page.getByLabel("Crop width")).toHaveValue("200");
+  await page.getByTestId("review-local-edit").click();
+  await page.getByTestId("accept-preview").click();
+  await expect(page.getByText("200 × 200px", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Rotate", exact: true }).click();
+  await page.getByTestId("review-local-edit").click();
+  await page.getByTestId("accept-preview").click();
+  await page.getByRole("button", { name: "Flip", exact: true }).click();
+  await page.getByRole("button", { name: "Flip vertical", exact: true }).click();
+  await page.getByTestId("review-local-edit").click();
+  await page.getByTestId("accept-preview").click();
+
+  await page.getByRole("button", { name: "Resize", exact: true }).click();
+  await page.getByLabel("Lock aspect ratio").uncheck();
+  await page.getByLabel("Width").fill("120");
+  await page.getByLabel("Height").fill("80");
+  await page.getByTestId("review-local-edit").click();
+  await page.getByTestId("accept-preview").click();
+  await expect(page.getByText("120 × 80px", { exact: true })).toBeVisible();
+  await expect(page.getByText("4 accepted edits", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await page.getByLabel("Text content").fill("MIRAI TEST");
+  await page.getByLabel("Font", { exact: true }).selectOption("Georgia");
+  await page.getByLabel("Font size", { exact: true }).fill("14");
+  await page.getByTestId("review-local-edit").click();
+  await page.getByTestId("accept-preview").click();
+
+  await page.getByRole("button", { name: "Watermark", exact: true }).click();
+  await page.getByLabel("Watermark text").fill("© TEST");
+  await page.getByRole("button", { name: "Watermark center", exact: true }).click();
+  await page.getByTestId("review-local-edit").click();
+  await page.getByTestId("accept-preview").click();
+
+  await page.getByRole("button", { name: "Add watermark", exact: true }).click();
+  await page.getByRole("button", { name: "Logo", exact: true }).click();
+  await page.locator('section[aria-label="Watermark controls"] input[type="file"]').evaluate(async (input: HTMLInputElement) => {
+    const logo = document.createElement("canvas"); logo.width = 100; logo.height = 40;
+    const context = logo.getContext("2d")!; context.fillStyle = "rgba(0,0,0,0)"; context.clearRect(0, 0, 100, 40);
+    context.fillStyle = "white"; context.font = "bold 24px sans-serif"; context.fillText("MIRAI", 4, 29);
+    const blob = await new Promise<Blob>((resolve) => logo.toBlob((value) => resolve(value!), "image/png"));
+    const transfer = new DataTransfer(); transfer.items.add(new File([blob], "watermark.png", { type: "image/png" }));
+    input.files = transfer.files; input.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await expect(page.getByText("Replace PNG logo", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Watermark south-east", exact: true }).click();
+  await page.getByTestId("review-local-edit").click();
+  await page.getByTestId("accept-preview").click();
+  await expect(page.getByText("7 accepted edits", { exact: true })).toBeVisible();
+
+  await page.getByTestId("undo").click();
+  await expect(page.getByTestId("redo")).toBeEnabled();
+  await page.getByTestId("redo").click();
+
+  await page.getByLabel("Project name").fill(projectName);
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByLabel("Open saved project").locator("option", { hasText: projectName })).toHaveCount(1);
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export current image", exact: true }).click();
+  const download = await downloadPromise;
+  const stream = await download.createReadStream(); const chunks: Buffer[] = [];
+  for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+  const png = Buffer.concat(chunks);
+  expect(png.readUInt32BE(16)).toBe(120); expect(png.readUInt32BE(20)).toBe(80);
+
+  await page.reload();
+  await page.getByLabel("Open saved project").selectOption({ label: projectName });
+  await expect(page.getByText("7 accepted edits", { exact: true })).toBeVisible();
+  await expect(page.getByText("120 × 80px", { exact: true })).toBeVisible();
+  expect(browserProblems).toEqual([]);
 });

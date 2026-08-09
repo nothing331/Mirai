@@ -30,3 +30,5 @@ button, select, input, textarea { transition: border-color 140ms ease, backgroun
 .tool-lasso canvas, .tool-brush canvas, .tool-eraser canvas { cursor: crosshair; }
 .tool-pan canvas { cursor: grab; }
 .tool-pan canvas:active { cursor: grabbing; }
+.tool-crop canvas { cursor: crosshair; }
+.tool-text canvas, .tool-watermark canvas { cursor: move; }

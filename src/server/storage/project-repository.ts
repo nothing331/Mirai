@@ -10,6 +10,7 @@ export interface ProjectSnapshot {
   versions: Array<{ id: string; parentVersionId: string | null; width: number; height: number; mediaType: "image/png" | "image/jpeg"; dataUrl: string }>;
   operations: unknown[];
   maskAssets: Array<{ id: string; width: number; height: number; alpha: number[] }>;
+  overlayAssets?: Array<{ id: string; width: number; height: number; mediaType: "image/png"; dataUrl: string; originalName: string }>;
   updatedAt: string;
 }
 
@@ -45,6 +46,12 @@ async function persistImmutableAssets(snapshot: ProjectSnapshot) {
   }));
   await Promise.all(snapshot.maskAssets.map(async (mask) => {
     try { await writeFile(path.join(projectRoot, `${mask.id}.mask`), Uint8Array.from(mask.alpha), { flag: "wx" }); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
+  }));
+  await Promise.all((snapshot.overlayAssets ?? []).map(async (asset) => {
+    const base64 = asset.dataUrl.split(",")[1];
+    if (!base64) throw new Error(`Overlay ${asset.id} has no encoded image data.`);
+    try { await writeFile(path.join(projectRoot, `${asset.id}.overlay.png`), Buffer.from(base64, "base64"), { flag: "wx" }); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
   }));
 }

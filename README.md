@@ -4,7 +4,7 @@ An image editor where users select a region, apply a localized AI or determinist
 
 ## Status
 
-The finished v0.1 editor supports closed-region selection, local recoloring, generative Remove/Restyle previews, immutable linear undo/redo, original/previous comparison, durable local projects, and original-resolution PNG/JPEG export. A deterministic fake provider is enabled by default, so the complete workflow runs without an API key.
+The editor supports closed-region selection, local recoloring, crop/resize/rotate/flip, editable text and text/PNG watermark drafts, generative Remove/Replace/Restyle previews, immutable linear undo/redo, durable local projects, and PNG/JPEG export at the accepted version's dimensions. Local tools run entirely in the browser. A deterministic fake AI provider is enabled by default, so the complete workflow runs without an API key.
 
 Documentation:
 

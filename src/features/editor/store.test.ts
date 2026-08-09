@@ -202,4 +202,39 @@ describe("filled selection preview and acceptance", () => {
     expect(state.versions.some((version) => version.id === abandonedId)).toBe(false);
     expect(state.canRedo()).toBe(false);
   });
+
+  it("accepts a crop as one maskless operation with output-sized selection state", () => {
+    useEditorStore.getState().beginLocalDraft("crop");
+    const draft = useEditorStore.getState().localDraft!;
+    if (draft.type !== "crop") throw new Error("Expected crop draft");
+    useEditorStore.getState().updateLocalDraft({ ...draft, parameters: { ...draft.parameters, sourceRect: { x: 1, y: 0, width: 2, height: 1 } } });
+    expect(useEditorStore.getState().createLocalPreview()).toBe(true);
+    expect(useEditorStore.getState().acceptPreview()).toBe(true);
+    const state = useEditorStore.getState();
+    expect(state.operations).toHaveLength(1);
+    expect(state.operations[0]).toMatchObject({ type: "crop", method: "local", maskId: null, parameters: { sourceRect: { x: 1, y: 0, width: 2, height: 1 } } });
+    expect(state.versions[1]).toMatchObject({ width: 2, height: 1 });
+    expect(state.selectionMask).toMatchObject({ width: 2, height: 1 });
+    expect(state.selectionMask?.data).toHaveLength(2);
+    expect(requestGenerativeCandidate).not.toHaveBeenCalled();
+  });
+
+  it("cancels a local draft without advancing history", () => {
+    useEditorStore.getState().beginLocalDraft("resize");
+    expect(useEditorStore.getState().localDraft?.type).toBe("resize");
+    useEditorStore.getState().cancelLocalDraft();
+    expect(useEditorStore.getState().localDraft).toBeNull();
+    expect(useEditorStore.getState().versions).toHaveLength(1);
+    expect(useEditorStore.getState().operations).toHaveLength(0);
+  });
+
+  it("rotates into swapped dimensions and undo restores source-sized selection state", () => {
+    useEditorStore.getState().beginLocalDraft("rotate");
+    useEditorStore.getState().createLocalPreview();
+    useEditorStore.getState().acceptPreview();
+    expect(useEditorStore.getState().versions[1]).toMatchObject({ width: 1, height: 3 });
+    expect(useEditorStore.getState().selectionMask).toMatchObject({ width: 1, height: 3 });
+    useEditorStore.getState().undo();
+    expect(useEditorStore.getState().selectionMask).toMatchObject({ width: 3, height: 1 });
+  });
 });

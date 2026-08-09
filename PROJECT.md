@@ -12,7 +12,7 @@ The project initially targets normal users rather than professional design workf
 
 ## Current state
 
-The editor supports PNG/JPEG upload, pan and zoom, conservatively cleaned closed-contour selection, brush and eraser refinement, on-canvas edit instructions, deterministic recoloring, and generative Remove/Replace/Restyle operations. Replace requests use a low-cost multimodal intent planner to turn short instructions into scene-aware structured plans before image generation. Generative editing uses provider-neutral server boundaries, deterministic fake implementations by default, and optional OpenAI adapters. The complete normalized provider candidate is the default review preview; an explicit protected mode retains exact mask compositing. Each request creates a reproducible diagnostic bundle with its timeline, masks, provider calls, prompts, plan, candidate-scope analysis, change map, and final preview. Accepted operations, versions, and masks form linear immutable history with undo/redo, and projects can be saved to local SQLite metadata plus immutable filesystem assets, reopened, and exported as PNG or JPEG.
+The editor supports PNG/JPEG upload, pan and zoom, conservatively cleaned closed-contour selection, brush and eraser refinement, deterministic crop/resize/rotate/flip/recolor operations, editable text and text/PNG watermark drafts, and generative Remove/Replace/Restyle operations. Replace requests use a low-cost multimodal intent planner to turn short instructions into scene-aware structured plans before image generation. Generative editing uses provider-neutral server boundaries, deterministic fake implementations by default, and optional OpenAI adapters. The complete normalized provider candidate is the default review preview; an explicit protected mode retains exact mask compositing. Local drafts render in source coordinates, are flattened only when accepted, and never call the image provider. Accepted operations and dimension-aware image versions form linear immutable history with undo/redo; projects, masks, and watermark assets can be saved locally, reopened, and exported as PNG or JPEG.
 
 ## v0.1 scope
 
@@ -29,6 +29,9 @@ Upload → canvas → manual mask → local recolor → generative edit → hist
 - conservative closed-contour cleanup with diagnostics, brush, and eraser mask refinement
 - on-canvas edit instructions synchronized with the inspector
 - deterministic recoloring
+- deterministic crop, resize, quarter-turn rotation, and horizontal/vertical flip
+- editable source-coordinate text overlays that flatten on acceptance
+- visible text or transparent-PNG watermarks with free or anchored placement
 - localized generative removal or restyling
 - complete generative candidate review with optional exact protected masking
 - preview acceptance and discard
@@ -275,6 +278,9 @@ These decisions are intentionally kept here until the project becomes large enou
 | Request diagnostics | Structured local manifests plus directly inspectable artifacts | Accepted |
 | Replace intent planning | Structured multimodal plan before image generation | Accepted |
 | Generative selection semantics | Approximate focus by default; explicit protected boundary available | Accepted |
+| Local transform processing | Browser-local deterministic kernels; no provider request | Accepted |
+| Text and watermark editing | Editable draft overlay, flattened into one accepted raster version | Accepted |
+| Overlay coordinates | Source-image coordinates, independent of viewport zoom | Accepted |
 
 ## Code documentation policy
 
@@ -304,6 +310,9 @@ Required behavior belongs in automated tests. High-priority tests include:
 - export without an additional provider call
 - diagnostic mask dimensions and artifact integrity
 - logging failures not affecting edit behavior or accepted history
+- dimension-changing edits recreating selection state at output dimensions
+- exact crop/quarter-turn/flip pixel mapping and deterministic resize dimensions
+- text and watermark acceptance producing one operation and one version
 
 ## v0.1 completion criteria
 

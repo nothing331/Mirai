@@ -40,6 +40,9 @@ The plan assumes approximately 1–2 hours per day. Complete and verify one mile
 | 10. Reproducible request diagnostics | Complete | Correlated request IDs, persistent processing bundles, artifact comparison, retention, pinning, and agent handoff |
 | 11. Context-aware Replace planning | Complete | Multimodal structured planning, planner failure isolation, two-call diagnostics, and history correlation |
 | 12. Full-candidate review | Complete | Approximate focus semantics, full-candidate default, optional protected compositing, scope diagnosis, and change-map evidence |
+| 13. Local transform workspace | Complete | Mode navigation plus crop, resize, quarter-turn rotate, flip, live source-space drafts, and dimension-aware history |
+| 14. Text and watermark overlays | Complete | Editable text, visible text watermarks, transparent PNG logo assets, anchored/free placement, flatten-on-accept, and persistence |
+| 15. Expanded workflow validation | Complete | Transform and overlay unit coverage, full browser workflow, save/reopen, undo/redo, and dimension-correct export |
 
 Update this table whenever a milestone begins or completes.
 
