@@ -27,5 +27,9 @@ describe("OpenAI Extend provider", () => {
     expect(mocks.edit).toHaveBeenCalledWith(expect.objectContaining({ model: "gpt-image-2", quality: "low", size: "816x816", output_format: "png" }));
     expect(mocks.edit.mock.calls[0][0]).toHaveProperty("mask");
     expect(await sharp(result.candidatePng).metadata()).toMatchObject({ width: 100, height: 100 });
+    const centerPixel = await sharp(result.candidatePng).extract({ left: 50, top: 50, width: 1, height: 1 }).removeAlpha().raw().toBuffer();
+    expect([...centerPixel]).toEqual([255, 0, 0]);
+    const maskAlpha = await sharp(result.effectiveMaskPng).ensureAlpha().extract({ left: 50, top: 50, width: 1, height: 1 }).raw().toBuffer();
+    expect(maskAlpha[3]).toBe(255);
   });
 });

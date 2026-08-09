@@ -28,7 +28,7 @@ export class OpenAIExtendProvider implements ExtendProvider {
       providerRequestId = requestId;
       const encoded = response.data?.[0]?.b64_json;
       if (!encoded) throw new ImageProviderError("The image provider returned no Extend candidate.", false, { providerRequestId });
-      const result = await finalizeCandidate(new Uint8Array(Buffer.from(encoded, "base64")), request.sourcePng, request.plan, prepared);
+      const result = await finalizeCandidate(new Uint8Array(Buffer.from(encoded, "base64")), request.plan, prepared);
       return { ...result, rawCandidatePng: new Uint8Array(Buffer.from(encoded, "base64")), providerInputPng: prepared.inputPng, providerMaskPng: prepared.maskPng, providerRequestId: providerRequestId ?? `openai-extend-${crypto.randomUUID()}` };
     } catch (error) {
       if (error instanceof ImageProviderError) throw error;
@@ -42,8 +42,9 @@ export class FakeExtendProvider implements ExtendProvider {
   async extend(request: ExtendProviderRequest): Promise<ExtendProviderResult> {
     const prepared = await prepareProviderInput(request.sourcePng, request.plan, 1536);
     const blurred = await sharp(request.sourcePng).resize(request.plan.outputWidth, request.plan.outputHeight, { fit: "cover" }).blur(18).png().toBuffer();
-    const candidate = await finalizeCandidate(new Uint8Array(await sharp(blurred).resize(prepared.logicalWidth, prepared.logicalHeight, { fit: "fill" }).extend({ top: prepared.logicalTop, bottom: prepared.providerHeight - prepared.logicalTop - prepared.logicalHeight, left: prepared.logicalLeft, right: prepared.providerWidth - prepared.logicalLeft - prepared.logicalWidth, background: "#777777" }).png().toBuffer()), request.sourcePng, request.plan, prepared);
-    return { ...candidate, rawCandidatePng: candidate.candidatePng, providerInputPng: prepared.inputPng, providerMaskPng: prepared.maskPng, providerRequestId: `fake-extend-${crypto.randomUUID()}` };
+    const rawCandidatePng = new Uint8Array(await sharp(blurred).resize(prepared.logicalWidth, prepared.logicalHeight, { fit: "fill" }).extend({ top: prepared.logicalTop, bottom: prepared.providerHeight - prepared.logicalTop - prepared.logicalHeight, left: prepared.logicalLeft, right: prepared.providerWidth - prepared.logicalLeft - prepared.logicalWidth, background: "#777777" }).png().toBuffer());
+    const candidate = await finalizeCandidate(rawCandidatePng, request.plan, prepared);
+    return { ...candidate, rawCandidatePng, providerInputPng: prepared.inputPng, providerMaskPng: prepared.maskPng, providerRequestId: `fake-extend-${crypto.randomUUID()}` };
   }
 }
 
@@ -70,15 +71,14 @@ export async function prepareProviderInput(sourcePng: Uint8Array, plan: SmartRef
   return { inputPng, maskPng, providerWidth, providerHeight, logicalWidth, logicalHeight, logicalLeft, logicalTop, scale };
 }
 
-async function finalizeCandidate(candidatePng: Uint8Array, sourcePng: Uint8Array, plan: SmartReframePlan, prepared: PreparedProviderInput): Promise<{ candidatePng: Uint8Array; effectiveMaskPng: Uint8Array }> {
-  const generated = await sharp(candidatePng).extract({ left: prepared.logicalLeft, top: prepared.logicalTop, width: prepared.logicalWidth, height: prepared.logicalHeight }).resize(plan.outputWidth, plan.outputHeight, { fit: "fill" }).png().toBuffer();
-  const seam = plan.seamWidth;
-  const core = { left: plan.sourceCrop.x + seam, top: plan.sourceCrop.y + seam, width: Math.max(1, plan.sourceCrop.width - seam * 2), height: Math.max(1, plan.sourceCrop.height - seam * 2) };
-  const corePng = await sharp(sourcePng).extract(core).png().toBuffer();
-  const candidate = new Uint8Array(await sharp(generated).composite([{ input: corePng, left: plan.sourcePlacement.x + seam, top: plan.sourcePlacement.y + seam }]).png().toBuffer());
-  const coreMask = await sharp({ create: { width: core.width, height: core.height, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 1 } } }).png().toBuffer();
-  const effectiveMaskPng = new Uint8Array(await sharp({ create: { width: plan.outputWidth, height: plan.outputHeight, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 1 } } }).composite([{ input: coreMask, left: plan.sourcePlacement.x + seam, top: plan.sourcePlacement.y + seam, blend: "dest-out" }]).png().toBuffer());
-  return { candidatePng: candidate, effectiveMaskPng };
+async function finalizeCandidate(candidatePng: Uint8Array, plan: SmartReframePlan, prepared: PreparedProviderInput): Promise<{ candidatePng: Uint8Array; effectiveMaskPng: Uint8Array }> {
+  const normalizedCandidate = new Uint8Array(await sharp(candidatePng)
+    .extract({ left: prepared.logicalLeft, top: prepared.logicalTop, width: prepared.logicalWidth, height: prepared.logicalHeight })
+    .resize(plan.outputWidth, plan.outputHeight, { fit: "fill" })
+    .png()
+    .toBuffer());
+  const effectiveMaskPng = new Uint8Array(await sharp({ create: { width: plan.outputWidth, height: plan.outputHeight, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 1 } } }).png().toBuffer());
+  return { candidatePng: normalizedCandidate, effectiveMaskPng };
 }
 
 function align16(value: number): number { return Math.ceil(value / 16) * 16; }

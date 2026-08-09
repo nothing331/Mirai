@@ -4,8 +4,8 @@ import { describe, expect, it } from "vitest";
 import { FakeExtendProvider } from "./extend-provider";
 import type { SmartReframePlan } from "@/shared/extend-plan";
 
-describe("Extend provider composition", () => {
-  it("returns the target dimensions and preserves protected core pixels exactly", async () => {
+describe("Extend provider normalization", () => {
+  it("returns the complete provider candidate and a full-output effective mask", async () => {
     const source = await sharp({ create: { width: 100, height: 80, channels: 4, background: { r: 12, g: 34, b: 56, alpha: 1 } } }).png().toBuffer();
     const plan: SmartReframePlan = {
       schemaVersion: 1, strategy: "preserve-all", presetId: "instagram-square", presetVersion: 1, inputWidth: 100, inputHeight: 80,
@@ -15,14 +15,9 @@ describe("Extend provider composition", () => {
     const result = await new FakeExtendProvider().extend({ sourcePng: new Uint8Array(source), plan, instruction: "extend" });
     const output = await sharp(result.candidatePng).raw().toBuffer({ resolveWithObject: true });
     expect(output.info).toMatchObject({ width: 100, height: 100 });
-    const sourcePixels = await sharp(source).raw().toBuffer();
-    for (let y = 8; y < 72; y += 1) for (let x = 8; x < 92; x += 1) {
-      const sourceIndex = (y * 100 + x) * 4;
-      const outputIndex = ((y + 10) * 100 + x) * 4;
-      expect(output.data.subarray(outputIndex, outputIndex + 4)).toEqual(sourcePixels.subarray(sourceIndex, sourceIndex + 4));
-    }
     const effectiveMask = await sharp(result.effectiveMaskPng).ensureAlpha().raw().toBuffer();
-    expect(effectiveMask[((10 + 40) * 100 + 50) * 4 + 3]).toBe(0);
+    expect(effectiveMask[((10 + 40) * 100 + 50) * 4 + 3]).toBe(255);
     expect(effectiveMask[(2 * 100 + 50) * 4 + 3]).toBe(255);
+    expect(await sharp(result.rawCandidatePng).metadata()).toMatchObject({ width: 816, height: 816 });
   });
 });

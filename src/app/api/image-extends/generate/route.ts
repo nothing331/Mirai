@@ -29,7 +29,7 @@ export async function POST(request: Request) {
     await diagnostics?.artifact("source-input.png", imagePng, "image/png");
     await diagnostics?.artifact("extend-scene-analysis.json", jsonBytes(analysis), "application/json");
     await diagnostics?.artifact("extend-plan.json", jsonBytes(plan), "application/json");
-    await diagnostics?.metadata({ providerInstruction: instruction, providerDimensions: { width: plan.outputWidth, height: plan.outputHeight }, previewSource: "protected-composite", configuration: { extendQuality: "low", extendPreset: plan.presetId, extendStrategy: plan.strategy } });
+    await diagnostics?.metadata({ providerInstruction: instruction, providerDimensions: { width: plan.outputWidth, height: plan.outputHeight }, previewSource: "full-candidate", configuration: { extendQuality: "low", extendPreset: plan.presetId, extendStrategy: plan.strategy } });
     await diagnostics?.beginProviderCall("extend-image-editor", providerName, providerName === "openai" ? (process.env.OPENAI_EXTEND_IMAGE_MODEL ?? "gpt-image-2") : "fake-extend-provider");
     const result = await createExtendProvider().extend({ sourcePng: imagePng, plan, instruction });
     await diagnostics?.completeProviderCall("extend-image-editor", result.providerRequestId);
