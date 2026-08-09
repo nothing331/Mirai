@@ -9,8 +9,11 @@ import { recolorPixels } from "./recolor";
 import { cleanLassoContour } from "./selection-geometry";
 import { blocksReplaceReviewAcceptance } from "@/shared/edit-boundary";
 import { blocksTransformAcceptance, unavailableTransformFidelityAssessment } from "@/shared/transform-fidelity";
+import { requestExtendCandidate, requestExtendPlan } from "./extend-client";
 import type { EditBoundaryPolicy } from "@/shared/edit-boundary";
-import type { EditOperation, EditPreview, EditType, FakeScenario, GenerativePreviewState, GenerativeRequestSnapshot, ImageVersion, LassoVisualization, MaskAsset, PaintSession, ProcessingMask, SelectionDiagnostics, SelectionMode, SourcePoint, Tool, TransformInput, Viewport } from "./types";
+import { solveSmartReframe, type ExtendSceneAnalysis } from "@/shared/extend-plan";
+import { getExtendPreset } from "@/shared/extend-presets";
+import type { EditOperation, EditPreview, EditType, ExtendDraftState, ExtendInput, FakeScenario, GenerativePreviewState, GenerativeRequestSnapshot, ImageVersion, LassoVisualization, MaskAsset, PaintSession, ProcessingMask, SelectionDiagnostics, SelectionMode, SourcePoint, Tool, TransformInput, Viewport } from "./types";
 
 interface EditorState {
   originalVersionId: string | null;
@@ -26,6 +29,8 @@ interface EditorState {
   fakeScenario: FakeScenario;
   boundaryPolicy: EditBoundaryPolicy;
   generativeState: GenerativePreviewState;
+  extendState: ExtendDraftState;
+  extendAnalysisCache: Record<string, ExtendSceneAnalysis>;
   selectionMask: ProcessingMask | null;
   selectionId: string | null;
   selectionMode: SelectionMode;
@@ -64,6 +69,8 @@ interface EditorState {
   createPreview: () => boolean;
   requestGenerativePreview: () => Promise<boolean>;
   requestTransformPreview: (input: TransformInput) => Promise<boolean>;
+  planExtend: (input: ExtendInput) => Promise<boolean>;
+  generateExtend: () => Promise<boolean>;
   retryGenerativePreview: () => Promise<boolean>;
   acceptPreview: () => boolean;
   discardPreview: () => void;
@@ -91,6 +98,7 @@ const initialControls = {
 };
 
 const idleGenerativeState: GenerativePreviewState = { status: "idle", snapshot: null, error: null, retryable: false };
+const idleExtendState: ExtendDraftState = { status: "idle", input: null, analysis: null, plan: null, error: null };
 
 /** Owns one filled source-resolution selection and separates previews from accepted history. */
 export const useEditorStore = create<EditorState>((set, get) => ({
@@ -103,6 +111,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   maskAssets: [],
   preview: null,
   generativeState: idleGenerativeState,
+  extendState: idleExtendState,
+  extendAnalysisCache: {},
   selectionMask: null,
   selectionId: null,
   selectionDiagnostics: null,
@@ -119,6 +129,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     maskAssets: [],
     preview: null,
     generativeState: idleGenerativeState,
+    extendState: idleExtendState,
+    extendAnalysisCache: {},
     selectionMask: createMask(version.width, version.height),
     selectionId: crypto.randomUUID(),
     selectionDiagnostics: null,
@@ -141,6 +153,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       maskAssets: project.maskAssets,
       preview: null,
       generativeState: idleGenerativeState,
+      extendState: idleExtendState,
+      extendAnalysisCache: {},
       lastRequestId: null,
       selectionMask: createMask(current.width, current.height),
       selectionId: crypto.randomUUID(),
@@ -255,7 +269,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       preview: {
         id: crypto.randomUUID(), inputVersionId: input.id, type: "paint", method: "local",
         parameters: { colors: [...session.colors], strokeCount: session.strokeCount }, mask, pixels,
-        dataUrl: pixelsToDataUrl(pixels, input.width, input.height),
+        dataUrl: pixelsToDataUrl(pixels, input.width, input.height), width: input.width, height: input.height,
       },
       error: null,
     });
@@ -281,7 +295,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       set({
         preview: {
           id: crypto.randomUUID(), inputVersionId: input.id, type: "recolor", method: "local", parameters: { color: state.color }, mask,
-          pixels, dataUrl: pixelsToDataUrl(pixels, input.width, input.height),
+          pixels, dataUrl: pixelsToDataUrl(pixels, input.width, input.height), width: input.width, height: input.height,
         },
         error: null,
       });
@@ -346,7 +360,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         preview: {
           id: crypto.randomUUID(), inputVersionId: input.id, type: "transform", method: "local",
           parameters: { ...normalizedInput, resolvedInstruction: "Deterministic monochrome luminance conversion." },
-          mask, pixels, dataUrl: pixelsToDataUrl(pixels, input.width, input.height),
+          mask, pixels, dataUrl: pixelsToDataUrl(pixels, input.width, input.height), width: input.width, height: input.height,
         },
         generativeState: idleGenerativeState,
         error: null,
@@ -374,6 +388,67 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       retryOfRequestId: state.generativeState.snapshot.requestId,
     });
   },
+  planExtend: async (extendInput) => {
+    const state = get();
+    const input = state.versions.find((version) => version.id === state.currentVersionId);
+    if (!input || state.paintSession) {
+      set({ error: state.paintSession ? "Apply or discard the pending paint before extending the image." : "Open an image before extending it." });
+      return false;
+    }
+    const normalized: ExtendInput = { ...extendInput, userPrompt: extendInput.userPrompt.trim() };
+    const cachedAnalysis = state.extendAnalysisCache[input.id] ?? null;
+    if (cachedAnalysis) {
+      const preset = getExtendPreset(normalized.presetId, normalized.presetVersion);
+      if (!preset) {
+        set({ error: "The selected Extend format is unavailable." });
+        return false;
+      }
+      const plan = solveSmartReframe({ width: input.width, height: input.height, presetId: normalized.presetId, presetVersion: normalized.presetVersion, ratio: preset.ratio, strategy: normalized.strategy, analysis: cachedAnalysis });
+      set({ extendState: { status: "planned", input: normalized, analysis: cachedAnalysis, plan, error: null }, preview: null, error: null });
+      return true;
+    }
+    set({ extendState: { status: "analyzing", input: normalized, analysis: cachedAnalysis, plan: null, error: null }, preview: null, error: null });
+    try {
+      const result = await requestExtendPlan(input, normalized, cachedAnalysis, state.projectId!);
+      if (get().currentVersionId !== input.id) return false;
+      set((current) => ({ extendState: { status: "planned", input: normalized, analysis: result.analysis, plan: result.plan, error: null }, extendAnalysisCache: { ...current.extendAnalysisCache, [input.id]: result.analysis } }));
+      return true;
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Smart Reframe planning failed.";
+      set({ extendState: { status: "failed", input: normalized, analysis: cachedAnalysis, plan: null, error: message }, error: message });
+      return false;
+    }
+  },
+  generateExtend: async () => {
+    const state = get();
+    const input = state.versions.find((version) => version.id === state.currentVersionId);
+    if (!input || state.extendState.status !== "planned" || !state.projectId) return false;
+    const draft = state.extendState;
+    set({ extendState: { ...draft, status: "generating", phase: "sending" }, preview: null, error: null });
+    try {
+      const candidate = await requestExtendCandidate(input, draft.input, draft.analysis, draft.plan, state.projectId, (phase) => {
+        const current = get();
+        if (current.currentVersionId !== input.id || current.extendState.status !== "generating") return;
+        set({ extendState: { ...current.extendState, phase } });
+      });
+      if (get().currentVersionId !== input.id) return false;
+      const mask: MaskAsset = { id: crypto.randomUUID(), ...candidate.mask };
+      set({
+        preview: {
+          id: crypto.randomUUID(), inputVersionId: input.id, type: "extend", method: "generative",
+          parameters: { ...draft.input, plan: draft.plan, analysis: draft.analysis, resolvedInstruction: candidate.resolvedInstruction, providerRequestId: candidate.providerRequestId, diagnosticRequestId: candidate.diagnosticRequestId },
+          mask, pixels: candidate.pixels, dataUrl: candidate.dataUrl, width: candidate.width, height: candidate.height,
+        },
+        extendState: { ...draft, status: "planned" },
+        lastRequestId: candidate.diagnosticRequestId,
+      });
+      return true;
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Image extension failed.";
+      set({ extendState: { status: "failed", input: draft.input, analysis: draft.analysis, plan: draft.plan, error: message }, error: message });
+      return false;
+    }
+  },
   acceptPreview: () => {
     const state = get();
     const preview = state.preview;
@@ -382,7 +457,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       set({ preview: null, error: "The preview is no longer based on the current image." });
       return false;
     }
-    if (preview.method === "generative" && preview.type !== "transform" && blocksReplaceReviewAcceptance(preview.type, preview.parameters.boundaryPolicy, preview.parameters.candidateAnalysis)) {
+    if (preview.method === "generative" && (preview.type === "remove" || preview.type === "replace" || preview.type === "restyle") && blocksReplaceReviewAcceptance(preview.type, preview.parameters.boundaryPolicy, preview.parameters.candidateAnalysis)) {
       set({ error: "This Replace proposal changed too much outside the selected target. Discard it and generate again, or use protected mode." });
       return false;
     }
@@ -392,12 +467,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
     const outputId = crypto.randomUUID();
     const output: ImageVersion = {
-      ...input, id: outputId, parentVersionId: input.id, mediaType: "image/png",
+      ...input, id: outputId, parentVersionId: input.id, mediaType: "image/png", width: preview.width, height: preview.height,
       pixels: new Uint8ClampedArray(preview.pixels), dataUrl: preview.dataUrl,
     };
     const operation: EditOperation = preview.method === "generative"
       ? preview.type === "transform"
         ? { id: crypto.randomUUID(), inputVersionId: input.id, outputVersionId: outputId, maskId: preview.mask.id, type: "transform", parameters: preview.parameters, method: "generative", status: "accepted" }
+        : preview.type === "extend"
+          ? { id: crypto.randomUUID(), inputVersionId: input.id, outputVersionId: outputId, maskId: preview.mask.id, type: "extend", parameters: preview.parameters, method: "generative", status: "accepted" }
         : { id: crypto.randomUUID(), inputVersionId: input.id, outputVersionId: outputId, maskId: preview.mask.id, type: preview.type, parameters: preview.parameters, method: "generative", status: "accepted" }
       : preview.type === "paint"
         ? { id: crypto.randomUUID(), inputVersionId: input.id, outputVersionId: outputId, maskId: preview.mask.id, type: "paint", parameters: preview.parameters, method: "local", status: "accepted" }
@@ -413,10 +490,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({
       versions: [...retainedVersions, output], operations: [...retainedOperations, operation],
       maskAssets: [...state.maskAssets.filter((mask) => retainedMaskIds.has(mask.id)), preview.mask], currentVersionId: outputId, preview: null,
-      selectionMask: preserveSelection ? state.selectionMask : createMask(input.width, input.height), selectionId: preserveSelection ? state.selectionId : crypto.randomUUID(),
+      selectionMask: preserveSelection ? state.selectionMask : createMask(output.width, output.height), selectionId: preserveSelection ? state.selectionId : crypto.randomUUID(),
       selectionDiagnostics: preserveSelection ? state.selectionDiagnostics : null, lassoVisualization: preserveSelection ? state.lassoVisualization : null,
       paintSession: null,
-      generativeState: idleGenerativeState, error: null,
+      generativeState: idleGenerativeState, extendState: idleExtendState, error: null,
     });
     return true;
   },
@@ -435,7 +512,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const currentIndex = state.versions.findIndex((version) => version.id === state.currentVersionId);
     if (currentIndex <= 0) return false;
     const target = state.versions[currentIndex - 1];
-    set({ currentVersionId: target.id, preview: null, paintSession: null, generativeState: idleGenerativeState, selectionMask: createMask(target.width, target.height), selectionId: crypto.randomUUID(), selectionDiagnostics: null, lassoVisualization: null, error: null });
+    set({ currentVersionId: target.id, preview: null, paintSession: null, generativeState: idleGenerativeState, extendState: idleExtendState, selectionMask: createMask(target.width, target.height), selectionId: crypto.randomUUID(), selectionDiagnostics: null, lassoVisualization: null, error: null });
     return true;
   },
   redo: () => {
@@ -443,14 +520,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const currentIndex = state.versions.findIndex((version) => version.id === state.currentVersionId);
     if (currentIndex < 0 || currentIndex >= state.versions.length - 1) return false;
     const target = state.versions[currentIndex + 1];
-    set({ currentVersionId: target.id, preview: null, paintSession: null, generativeState: idleGenerativeState, selectionMask: createMask(target.width, target.height), selectionId: crypto.randomUUID(), selectionDiagnostics: null, lassoVisualization: null, error: null });
+    set({ currentVersionId: target.id, preview: null, paintSession: null, generativeState: idleGenerativeState, extendState: idleExtendState, selectionMask: createMask(target.width, target.height), selectionId: crypto.randomUUID(), selectionDiagnostics: null, lassoVisualization: null, error: null });
     return true;
   },
   reset: () => set((state) => {
     const original = state.versions.find((version) => version.id === state.originalVersionId);
     return original ? {
       currentVersionId: original.id, versions: [original], operations: [], maskAssets: [], preview: null, paintSession: null, generativeState: idleGenerativeState,
-      selectionMask: createMask(original.width, original.height), selectionId: crypto.randomUUID(),
+      selectionMask: createMask(original.width, original.height), selectionId: crypto.randomUUID(), extendState: idleExtendState,
+      extendAnalysisCache: {},
       selectionDiagnostics: null, lassoVisualization: null,
       viewResetKey: state.viewResetKey + 1, error: null,
     } : {};
@@ -480,7 +558,7 @@ async function executeGenerativeRequest(snapshot: GenerativeRequestSnapshot): Pr
           candidateAnalysis: candidate.candidateAnalysis,
           transformFidelityAssessment: candidate.transformFidelityAssessment ?? unavailableTransformFidelityAssessment(),
         },
-        mask, pixels: candidate.pixels, dataUrl: candidate.dataUrl,
+        mask, pixels: candidate.pixels, dataUrl: candidate.dataUrl, width: snapshot.inputVersion.width, height: snapshot.inputVersion.height,
       };
     } else {
       preview = {
@@ -492,7 +570,7 @@ async function executeGenerativeRequest(snapshot: GenerativeRequestSnapshot): Pr
           boundaryPolicy: snapshot.boundaryPolicy,
           candidateAnalysis: candidate.candidateAnalysis,
         },
-        mask, pixels: candidate.pixels, dataUrl: candidate.dataUrl,
+        mask, pixels: candidate.pixels, dataUrl: candidate.dataUrl, width: snapshot.inputVersion.width, height: snapshot.inputVersion.height,
       };
     }
     useEditorStore.setState({

@@ -9,6 +9,7 @@ import type { EditBoundaryPolicy } from "@/shared/edit-boundary";
 import { useEditorStore } from "../store";
 import type { EditType, FakeScenario, SelectionMode, TransformInput } from "../types";
 import { TransformInspector } from "./TransformInspector";
+import { ExtendInspector } from "./ExtendInspector";
 import type { ProviderCapabilities } from "./workspace-types";
 import type { WorkspacePhase } from "./workspace-phase";
 
@@ -24,8 +25,11 @@ export function EditorInspector({
   providerCapabilities,
   realRequestsUsed,
   transformSelected,
+  extendSelected,
   onGenerate,
   onGenerateTransform,
+  onPlanExtend,
+  onGenerateExtend,
   onRetry,
   onOpenDiagnostics,
 }: {
@@ -33,8 +37,11 @@ export function EditorInspector({
   providerCapabilities: ProviderCapabilities | null;
   realRequestsUsed: number;
   transformSelected: boolean;
+  extendSelected: boolean;
   onGenerate: () => void;
   onGenerateTransform: (input: TransformInput) => Promise<boolean>;
+  onPlanExtend: (input: import("../types").ExtendInput) => Promise<boolean>;
+  onGenerateExtend: () => Promise<boolean>;
   onRetry: () => Promise<boolean>;
   onOpenDiagnostics: () => void;
 }) {
@@ -79,6 +86,7 @@ export function EditorInspector({
   if (transformSelected) {
     return <TransformInspector providerCapabilities={providerCapabilities} realRequestsUsed={realRequestsUsed} onGenerate={onGenerateTransform} onRetry={onRetry} onOpenDiagnostics={onOpenDiagnostics} />;
   }
+  if (extendSelected) return <ExtendInspector onPlan={onPlanExtend} onGenerate={onGenerateExtend} requestLimitReached={requestLimitReached} />;
 
   if (phase === "preview") {
     return (

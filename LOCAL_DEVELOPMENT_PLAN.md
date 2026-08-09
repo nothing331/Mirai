@@ -43,6 +43,7 @@ The plan assumes approximately 1–2 hours per day. Complete and verify one mile
 | 13. Image-first workspace UI | Complete | Compact tool rail, contextual inspector, global command header, responsive layout, keyboard tools, and state-driven review/failure presentation |
 | 14. Focused direct canvas tools | Complete | Lasso-owned generation, direct paint drafts, draft-only erasing, and inspector-free hand navigation |
 | 15. Full-image Transform | Complete | Versioned visual presets, local Monochrome, source-content planning, maskless generation, aspect enforcement, semantic fidelity review, persistence, and diagnostics |
+| 16. Smart Extend | Complete | Versioned social formats, cached scene analysis, deterministic Smart Reframe, low-quality outpainting, exact retained-core compositing, dimension-changing history, and frame preview |
 
 Update this table whenever a milestone begins or completes.
 

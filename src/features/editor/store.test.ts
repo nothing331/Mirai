@@ -8,9 +8,11 @@ vi.mock("./generative-client", () => {
   }
   return { GenerativeRequestError, requestGenerativeCandidate: vi.fn() };
 });
+vi.mock("./extend-client", () => ({ requestExtendPlan: vi.fn(), requestExtendCandidate: vi.fn() }));
 
 import { useEditorStore } from "./store";
 import { GenerativeRequestError, requestGenerativeCandidate } from "./generative-client";
+import { requestExtendCandidate, requestExtendPlan } from "./extend-client";
 
 const original: ImageVersion = {
   id: "original", parentVersionId: null, width: 3, height: 1, mediaType: "image/png",
@@ -54,10 +56,64 @@ const passingTransformAssessment = {
 describe("filled selection preview and acceptance", () => {
   beforeEach(() => {
     vi.mocked(requestGenerativeCandidate).mockReset();
+    vi.mocked(requestExtendPlan).mockReset();
+    vi.mocked(requestExtendCandidate).mockReset();
     useEditorStore.getState().loadImage(original);
     useEditorStore.getState().setBoundaryPolicy("review");
     useEditorStore.getState().setBrushSize(1);
     useEditorStore.getState().setMaskSoftness(0);
+  });
+
+  it("plans and accepts a dimension-changing Extend as one immutable edit", async () => {
+    const analysis = {
+      primarySubjects: [{ label: "subject", bounds: { x: 0.3, y: 0.1, width: 0.4, height: 0.8 }, importance: 1, touchesEdge: false, mustPreserve: true }],
+      secondarySubjects: [], textRegions: [], horizonY: null, visualCenter: { x: 0.5, y: 0.5 }, negativeSpaceRegions: [],
+      edgeContinuation: { top: "sky", right: "wall", bottom: "floor", left: "wall" }, confidence: 0.9, warnings: [],
+    };
+    const plan = {
+      schemaVersion: 1 as const, strategy: "smart" as const, presetId: "instagram-classic" as const, presetVersion: 1 as const, inputWidth: 3, inputHeight: 1,
+      sourceCrop: { x: 0, y: 0, width: 3, height: 1 }, sourcePlacement: { x: 1, y: 1, width: 3, height: 1 }, outputWidth: 4, outputHeight: 5,
+      expansionInsets: { top: 1, right: 0, bottom: 3, left: 1 }, seamWidth: 1, cropAreaRatio: 0, generatedAreaRatio: 0.85, confidence: 0.9, rationale: ["Kept source"], warnings: [],
+    };
+    vi.mocked(requestExtendPlan).mockResolvedValue({ analysis, plan });
+    vi.mocked(requestExtendCandidate).mockResolvedValue({
+      id: "extend-candidate", parentVersionId: null, mediaType: "image/png", width: 4, height: 5, pixels: new Uint8ClampedArray(4 * 5 * 4), dataUrl: "data:image/png;base64,extend",
+      mask: { width: 4, height: 5, data: new Uint8ClampedArray(20).fill(255) }, providerRequestId: "extend-provider", diagnosticRequestId: "extend-request", resolvedInstruction: "Extend scene",
+    });
+    const input = { presetId: "instagram-classic" as const, presetVersion: 1 as const, strategy: "smart" as const, userPrompt: "" };
+    expect(await useEditorStore.getState().planExtend(input)).toBe(true);
+    expect(useEditorStore.getState().versions).toHaveLength(1);
+    expect(await useEditorStore.getState().generateExtend()).toBe(true);
+    expect(useEditorStore.getState().preview).toMatchObject({ type: "extend", width: 4, height: 5 });
+
+    expect(useEditorStore.getState().acceptPreview()).toBe(true);
+    const state = useEditorStore.getState();
+    expect(state.versions).toHaveLength(2);
+    expect(state.versions[1]).toMatchObject({ width: 4, height: 5 });
+    expect(state.operations[0]).toMatchObject({ type: "extend", method: "generative", parameters: { plan, providerRequestId: "extend-provider" } });
+    expect(state.selectionMask).toMatchObject({ width: 4, height: 5 });
+    expect(state.undo()).toBe(true);
+    expect(useEditorStore.getState().selectionMask).toMatchObject({ width: 3, height: 1 });
+  });
+
+  it("reuses scene analysis and solves later Extend presets without another planning request", async () => {
+    const analysis = {
+      primarySubjects: [{ label: "subject", bounds: { x: 0.3, y: 0.1, width: 0.4, height: 0.8 }, importance: 1, touchesEdge: false, mustPreserve: true }],
+      secondarySubjects: [], textRegions: [], horizonY: null, visualCenter: { x: 0.5, y: 0.5 }, negativeSpaceRegions: [],
+      edgeContinuation: { top: "sky", right: "wall", bottom: "floor", left: "wall" }, confidence: 0.9, warnings: [],
+    };
+    const firstPlan = {
+      schemaVersion: 1 as const, strategy: "smart" as const, presetId: "instagram-classic" as const, presetVersion: 1 as const, inputWidth: 3, inputHeight: 1,
+      sourceCrop: { x: 0, y: 0, width: 3, height: 1 }, sourcePlacement: { x: 1, y: 1, width: 3, height: 1 }, outputWidth: 4, outputHeight: 5,
+      expansionInsets: { top: 1, right: 0, bottom: 3, left: 1 }, seamWidth: 1, cropAreaRatio: 0, generatedAreaRatio: 0.85, confidence: 0.9, rationale: ["Kept source"], warnings: [],
+    };
+    vi.mocked(requestExtendPlan).mockResolvedValue({ analysis, plan: firstPlan });
+
+    await useEditorStore.getState().planExtend({ presetId: "instagram-classic", presetVersion: 1, strategy: "smart", userPrompt: "" });
+    await useEditorStore.getState().planExtend({ presetId: "instagram-square", presetVersion: 1, strategy: "smart", userPrompt: "" });
+
+    expect(requestExtendPlan).toHaveBeenCalledTimes(1);
+    expect(useEditorStore.getState().extendState).toMatchObject({ status: "planned", input: { presetId: "instagram-square" }, plan: { schemaVersion: 2, presetId: "instagram-square" } });
   });
 
   it("generative processing and preview do not advance history", async () => {
