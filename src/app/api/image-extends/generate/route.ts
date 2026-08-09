@@ -41,7 +41,6 @@ export async function POST(request: Request) {
     await diagnostics?.succeed(result.providerRequestId);
     return Response.json({
       candidateBase64: Buffer.from(result.candidatePng).toString("base64"),
-      effectiveMaskBase64: Buffer.from(result.effectiveMaskPng).toString("base64"),
       providerRequestId: result.providerRequestId,
       resolvedInstruction: instruction,
       width: plan.outputWidth,
