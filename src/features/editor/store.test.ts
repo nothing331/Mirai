@@ -291,6 +291,38 @@ describe("filled selection preview and acceptance", () => {
     });
   });
 
+  it("starts a generated asset as an immutable project original with provenance and no edit", () => {
+    useEditorStore.getState().loadImage(original, {
+      projectId: "generated-project",
+      projectName: "Orbital mark",
+      lastRequestId: "generation-request",
+      projectOrigin: {
+        kind: "asset-generation",
+        requestId: "generation-request",
+        mode: "mark",
+        assetType: "logo-mark",
+        description: "An orbital compass",
+        style: "minimal-geometric",
+        colorMode: "custom",
+        colors: ["#171714"],
+        size: "1024x1024",
+        provider: "fake",
+        model: "fake-asset-generator",
+        quality: "low",
+      },
+    });
+
+    expect(useEditorStore.getState()).toMatchObject({
+      projectId: "generated-project",
+      originalVersionId: original.id,
+      currentVersionId: original.id,
+      lastRequestId: "generation-request",
+      projectOrigin: { kind: "asset-generation", requestId: "generation-request" },
+      versions: [original],
+      operations: [],
+    });
+  });
+
   it("undo and redo move only the current immutable version pointer", () => {
     useEditorStore.getState().fillSelection(firstPixelContour);
     useEditorStore.getState().createPreview();

@@ -8,12 +8,14 @@ import { recolorPixels } from "./recolor";
 import { cleanLassoContour } from "./selection-geometry";
 import { blocksReplaceReviewAcceptance } from "@/shared/edit-boundary";
 import type { EditBoundaryPolicy } from "@/shared/edit-boundary";
+import type { ProjectOrigin } from "@/shared/asset-generation";
 import type { EditOperation, EditPreview, EditType, FakeScenario, GenerativePreviewState, GenerativeRequestSnapshot, ImageVersion, LassoVisualization, MaskAsset, PaintSession, ProcessingMask, SelectionDiagnostics, SelectionMode, SourcePoint, Tool, Viewport } from "./types";
 
 interface EditorState {
   originalVersionId: string | null;
   projectId: string | null;
   projectName: string;
+  projectOrigin: ProjectOrigin;
   currentVersionId: string | null;
   versions: ImageVersion[];
   operations: EditOperation[];
@@ -38,8 +40,8 @@ interface EditorState {
   color: string;
   error: string | null;
   lastRequestId: string | null;
-  loadImage: (version: ImageVersion) => void;
-  restoreProject: (project: { id: string; name: string; originalVersionId: string; currentVersionId: string; versions: ImageVersion[]; operations: EditOperation[]; maskAssets: MaskAsset[] }) => void;
+  loadImage: (version: ImageVersion, options?: { projectId?: string; projectName?: string; projectOrigin?: ProjectOrigin; lastRequestId?: string | null }) => void;
+  restoreProject: (project: { id: string; name: string; origin?: ProjectOrigin; originalVersionId: string; currentVersionId: string; versions: ImageVersion[]; operations: EditOperation[]; maskAssets: MaskAsset[] }) => void;
   setProjectName: (name: string) => void;
   setViewport: (viewport: Viewport) => void;
   requestViewReset: () => void;
@@ -94,6 +96,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   originalVersionId: null,
   projectId: null,
   projectName: "Untitled edit",
+  projectOrigin: { kind: "upload" },
   currentVersionId: null,
   versions: [],
   operations: [],
@@ -106,9 +109,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   lassoVisualization: null,
   paintSession: null,
   ...initialControls,
-  loadImage: (version) => set((state) => ({
-    projectId: crypto.randomUUID(),
-    projectName: "Untitled edit",
+  loadImage: (version, options) => set((state) => ({
+    projectId: options?.projectId ?? crypto.randomUUID(),
+    projectName: options?.projectName ?? "Untitled edit",
+    projectOrigin: options?.projectOrigin ?? { kind: "upload" },
     originalVersionId: version.id,
     currentVersionId: version.id,
     versions: [version],
@@ -123,7 +127,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     paintSession: null,
     viewResetKey: state.viewResetKey + 1,
     error: null,
-    lastRequestId: null,
+    lastRequestId: options?.lastRequestId ?? null,
   })),
   restoreProject: (project) => {
     const current = project.versions.find((version) => version.id === project.currentVersionId);
@@ -131,6 +135,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((state) => ({
       projectId: project.id,
       projectName: project.name,
+      projectOrigin: project.origin ?? { kind: "upload" },
       originalVersionId: project.originalVersionId,
       currentVersionId: project.currentVersionId,
       versions: project.versions,

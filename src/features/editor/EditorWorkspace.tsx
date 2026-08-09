@@ -4,6 +4,8 @@ import type { ChangeEvent } from "react";
 import { useCallback, useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { DiagnosticsDrawer } from "@/features/diagnostics/DiagnosticsDrawer";
+import { AssetGenerationDialog, type DisplayedAssetCandidate } from "@/features/asset-generation/AssetGenerationDialog";
+import { candidateDataUrl } from "@/features/asset-generation/asset-generation-client";
 import { cn } from "@/lib/utils";
 import { decodeImage } from "./image-data";
 import { maskHasSelection } from "./mask";
@@ -44,6 +46,7 @@ export function EditorWorkspace() {
   const [savedProjects, setSavedProjects] = useState<SavedProjectSummary[]>([]);
   const [exportFormat, setExportFormat] = useState<ExportFormat>("image/png");
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [assetGeneratorOpen, setAssetGeneratorOpen] = useState(false);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(() => !useEditorStore.getState().currentVersionId);
   const phase = deriveWorkspacePhase({ hasImage: Boolean(editor.currentVersionId), preview: editor.preview, generativeState: editor.generativeState, selectionMask: editor.selectionMask });
 
@@ -169,6 +172,38 @@ export function EditorWorkspace() {
     }
   }
 
+  async function handleUseGeneratedAsset(candidate: DisplayedAssetCandidate) {
+    if (editor.currentVersionId && !window.confirm("Start a new project from this generated design? Your current project remains available only if it was saved.")) return false;
+    const blob = await fetch(candidateDataUrl(candidate.candidateBase64)).then((response) => response.blob());
+    const version = await decodeImage(new File([blob], "generated-image.png", { type: "image/png" }));
+    const description = candidate.request.mode === "mark" ? candidate.request.brief.description : candidate.request.prompt;
+    const name = generatedProjectName(description, candidate.request.mode, candidate.request.mode === "mark" ? candidate.request.brief.assetType : undefined);
+    const markBrief = candidate.request.mode === "mark" ? candidate.request.brief : null;
+    editor.loadImage(version, {
+      projectId: candidate.response.projectId,
+      projectName: name,
+      lastRequestId: candidate.response.requestId,
+      projectOrigin: {
+        kind: "asset-generation",
+        requestId: candidate.response.requestId,
+        mode: candidate.request.mode,
+        ...(markBrief ? { assetType: markBrief.assetType, style: markBrief.style, colorMode: markBrief.colorMode } : {}),
+        description,
+        colors: markBrief?.colors ?? [],
+        size: candidate.request.size,
+        provider: candidate.response.provider,
+        model: candidate.response.model,
+        quality: candidate.response.quality,
+      },
+    });
+    setInspectorCollapsed(false);
+    await saveEditorProject(useEditorStore.getState());
+    setSavedProjects(await listSavedProjects());
+    setAssetGeneratorOpen(false);
+    editor.setError(null);
+    return true;
+  }
+
   return (
     <>
       <main className="h-dvh overflow-hidden bg-[#cfcdc5] text-ink">
@@ -187,7 +222,7 @@ export function EditorWorkspace() {
           inspectorCollapsed ? "md:grid-cols-[48px_minmax(0,1fr)]" : "md:grid-cols-[256px_minmax(0,1fr)]",
         )}>
           <aside className={cn("order-2 grid min-h-0 overflow-hidden bg-paper md:order-1 md:grid-cols-[48px_minmax(0,1fr)]", !inspectorCollapsed && "max-md:grid-rows-[48px_minmax(0,42dvh)]")} aria-label="Editor tools">
-            <ToolRail collapsed={inspectorCollapsed} disabled={!editor.currentVersionId || phase === "processing" || phase === "preview"} onSelectTool={selectTool} onToggleInspector={() => setInspectorCollapsed((current) => !current)} />
+            <ToolRail collapsed={inspectorCollapsed} disabled={!editor.currentVersionId || phase === "processing" || phase === "preview"} generationDisabled={busyAction !== null} onGenerateAsset={() => setAssetGeneratorOpen(true)} onSelectTool={selectTool} onToggleInspector={() => setInspectorCollapsed((current) => !current)} />
             {!inspectorCollapsed && (
               <div className="min-h-0 border-t border-line md:border-t-0" data-testid="editor-inspector">
                 <EditorInspector
@@ -201,10 +236,18 @@ export function EditorWorkspace() {
               </div>
             )}
           </aside>
-          <CanvasFrame busyAction={busyAction} onUpload={handleUpload} />
+          <CanvasFrame busyAction={busyAction} onUpload={handleUpload} onGenerateAsset={() => setAssetGeneratorOpen(true)} />
         </section>
       </main>
       <DiagnosticsDrawer projectId={editor.projectId} focusRequestId={editor.lastRequestId} open={diagnosticsOpen} onClose={() => setDiagnosticsOpen(false)} />
+      <AssetGenerationDialog open={assetGeneratorOpen} onClose={() => setAssetGeneratorOpen(false)} onUseCandidate={handleUseGeneratedAsset} />
     </>
   );
+}
+
+function generatedProjectName(description: string, mode: "mark" | "image" | "transform", assetType?: "icon" | "logo-mark"): string {
+  const compact = description.trim().replace(/\s+/g, " ").slice(0, 42).replace(/[.,;:!?-]+$/, "");
+  const fallback = mode === "mark" ? assetType === "icon" ? "Generated icon" : "Generated mark" : mode === "image" ? "Generated image" : "Transformed image";
+  const suffix = mode === "mark" ? assetType === "icon" ? " icon" : " mark" : mode === "transform" ? " transformation" : "";
+  return `${compact || fallback}${compact ? suffix : ""}`;
 }

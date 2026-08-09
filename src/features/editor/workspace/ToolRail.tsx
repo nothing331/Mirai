@@ -1,6 +1,6 @@
 "use client";
 
-import { Brush, Eraser, Hand, LassoSelect, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Brush, Eraser, Hand, LassoSelect, PanelLeftClose, PanelLeftOpen, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEditorStore } from "../store";
 import type { Tool } from "../types";
@@ -12,12 +12,25 @@ const tools: Array<{ value: Tool; label: string; shortcut: string; icon: typeof 
   { value: "pan", label: "Pan", shortcut: "H", icon: Hand },
 ];
 
-export function ToolRail({ collapsed, disabled, onSelectTool, onToggleInspector }: { collapsed: boolean; disabled: boolean; onSelectTool: (tool: Tool) => void; onToggleInspector: () => void }) {
+export function ToolRail({ collapsed, disabled, generationDisabled, onGenerateAsset, onSelectTool, onToggleInspector }: { collapsed: boolean; disabled: boolean; generationDisabled: boolean; onGenerateAsset: () => void; onSelectTool: (tool: Tool) => void; onToggleInspector: () => void }) {
   const tool = useEditorStore((state) => state.tool);
   const hasPendingPaint = useEditorStore((state) => Boolean(state.paintSession));
 
   return (
     <nav className="flex h-12 items-center border-t border-line bg-[#e9e7df] md:h-auto md:flex-col md:border-r md:border-t-0" aria-label="Canvas tools">
+      <button
+        data-testid="rail-asset-generator"
+        type="button"
+        className="group relative grid size-11 shrink-0 place-items-center bg-acid text-ink outline-none transition-colors hover:bg-accent hover:text-white focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent disabled:pointer-events-none disabled:opacity-35 md:mt-2"
+        aria-label="Create with AI"
+        title="Create with AI"
+        disabled={generationDisabled}
+        onClick={onGenerateAsset}
+      >
+        <Sparkles className="size-[17px]" />
+        <span className="absolute bottom-1 right-1 font-mono text-[7px] font-bold uppercase leading-none group-hover:text-white">AI</span>
+      </button>
+      <span className="h-7 w-px shrink-0 bg-line md:h-px md:w-7" aria-hidden="true" />
       <div className="flex flex-1 items-center justify-center md:w-full md:flex-none md:flex-col md:py-2" role="radiogroup" aria-label="Selection tool">
         {tools.map(({ value, label, shortcut, icon: Icon }) => (
           <button

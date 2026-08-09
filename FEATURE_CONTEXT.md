@@ -32,6 +32,20 @@ Keep entries focused on current behavior. Link to project-wide decisions instead
 
 **Code and verification.** `src/features/editor/EditorWorkspace.tsx`, `src/features/editor/project-client.ts`, `src/features/editor/store.ts`, `src/app/api/projects/route.ts`, `src/server/storage/project-repository.ts`, `src/features/editor/store.test.ts`, and `e2e/editor.spec.ts`.
 
+## AI creation studio
+
+**Outcome.** From the empty canvas or persistent tool rail, a user can open one creation dialog and choose Mark, Image, or Transform. Mark creates one transparent icon or logo mark from a structured brief. Image creates one complete image from text. Transform accepts one temporary PNG/JPEG reference and an instruction, then creates one complete transformed image. Every request is low quality and returns exactly one result that can become the immutable original of a new Mirai project.
+
+**Working flow.** A discriminated shared contract validates all three modes before one `POST /api/asset-generations` call. Mark is fixed at 1024 × 1024. Its Auto palette sends no fixed foreground colors; Custom constrains the provider to the chosen colors. The server requests a flat palette-distant matte and Sharp removes only edge-connected matte pixels. Image and Transform expose square, landscape, and portrait output choices; their complete provider PNG is validated but not cropped or composited. Transform converts its one base64 browser upload to a normalized PNG and calls the provider's image-edit path without a mask. The source is copied into request diagnostics but is not persisted with the project. Choosing the result decodes it as an `ImageVersion`, initializes zero-edit history, records creation mode, size, and provider provenance, and auto-saves through the existing project API.
+
+**Ownership and rules.** The dialog owns temporary mode inputs, the reference upload, and the single result. Shared Zod contracts own mode-specific validation and resolution limits. Prompt construction, OpenAI generation/edit calls, credentials, source normalization, and transparency processing remain server-only. The OpenAI adapter defaults to `gpt-image-2`, always requests low quality and `n=1`, and omits `input_fidelity` because GPT Image 2 processes image inputs at high fidelity automatically. The deterministic fake adapter supports all modes by default. The API route owns orchestration and diagnostics. The editor store alone initializes a chosen result as a project original. A generated original is not an edit operation, so accepting it creates no history entry and never overwrites another original.
+
+**Failures and recovery.** Invalid prompts, resolutions, source types, empty source data, and source images over 20 MB fail before a provider call. Provider failures report whether a call may have been attempted and whether retry is reasonable. Every real request requires explicit browser confirmation and is session-limited. A low-confidence Mark cutout remains visible with a cleanup warning. Image and Transform never silently fall back to matte removal. Save failure leaves the result open and reports the persistence error.
+
+**Dependencies and limits.** The MVP supports one source and one output per request, low quality only, and three common output sizes. It does not include strength controls, multiple references, source masks inside the popup, provider/model selection, persistent generation history, wordmarks, SVG/vector output, trademark search, or prompt enhancement. Mark transparency is local and works best on crisp flat shapes. Transform is a whole-image reference workflow; localized generative edits remain in the existing Lasso workflow.
+
+**Code and verification.** `src/features/asset-generation/`, `src/app/api/asset-generations/route.ts`, `src/server/asset-generation/`, `src/shared/asset-generation.ts`, project-origin changes in `src/features/editor/store.ts` and `src/features/editor/project-client.ts`, adjacent unit/route tests, and `e2e/editor.spec.ts`.
+
 ## Canvas navigation and source-space coordinates
 
 **Outcome.** A user can view, pan, zoom, and reset an image while selections continue to align with the source pixels.

@@ -1,5 +1,77 @@
 import { expect, test, type Page } from "@playwright/test";
 
+test("fake asset generator creates a transparent, auto-saved project with no edit history", async ({ page }) => {
+  const conceptName = `Orbital compass ${Date.now()}`;
+  await page.goto("/");
+  await expect(page.getByTestId("rail-asset-generator")).toBeVisible();
+  await expect(page.locator("header").getByRole("button", { name: "Create with AI" })).toHaveCount(0);
+  await page.getByTestId("rail-asset-generator").click();
+  const dialog = page.getByRole("dialog", { name: "Create with AI" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText("One low-quality result", { exact: false })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Auto" })).toHaveAttribute("aria-pressed", "true");
+  await expect(dialog.getByLabel("Color 1")).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Custom" }).click();
+  await expect(dialog.getByLabel("Color 1")).toBeVisible();
+  await dialog.getByRole("button", { name: "Auto" }).click();
+  await dialog.getByTestId("asset-description").fill(conceptName);
+  await dialog.getByTestId("generate-assets").click();
+  await expect(dialog.getByTestId("asset-candidate-1")).toBeVisible();
+  await expect(dialog.getByTestId("asset-candidate-2")).toHaveCount(0);
+  await expect(dialog.getByText("Transparent PNG")).toHaveCount(1);
+  await dialog.getByTestId("use-generated-asset").click();
+
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByText("1024 × 1024px")).toBeVisible();
+  await expect(page.getByText("0 accepted edits", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Open saved project").locator("option", { hasText: conceptName })).toHaveCount(1);
+  await page.getByRole("button", { name: "Diagnostics" }).click();
+  const diagnostics = page.getByRole("dialog", { name: "Request diagnostics" });
+  await expect(diagnostics.getByText(/fake · asset-generation · review/)).toBeVisible();
+  await expect(diagnostics.getByText("A1 / Provider result")).toBeVisible();
+  await expect(diagnostics.getByText("A1 / Ready result")).toBeVisible();
+});
+
+test("AI creator generates one landscape image and transforms one uploaded reference", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("rail-asset-generator").click();
+  const dialog = page.getByRole("dialog", { name: "Create with AI" });
+
+  await dialog.getByRole("tab", { name: "Generate image" }).click();
+  await dialog.getByRole("button", { name: /Landscape/ }).click();
+  await dialog.getByTestId("asset-description").fill("A sunlit reading room filled with plants, editorial photography");
+  await dialog.getByTestId("generate-assets").click();
+  const generated = dialog.getByTestId("asset-candidate-1");
+  await expect(generated).toBeVisible();
+  await expect(generated.getByText("1536 × 1024")).toBeVisible();
+  await expect(generated.getByText("Complete PNG")).toBeVisible();
+
+  await dialog.getByRole("tab", { name: "Transform image" }).click();
+  await dialog.getByTestId("transform-source-input").evaluate(async (input: HTMLInputElement) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 40;
+    canvas.height = 30;
+    const context = canvas.getContext("2d")!;
+    context.fillStyle = "#2878b8";
+    context.fillRect(0, 0, 40, 30);
+    context.fillStyle = "#d8f441";
+    context.fillRect(10, 6, 20, 18);
+    const blob = await new Promise<Blob>((resolve) => canvas.toBlob((value) => resolve(value!), "image/png"));
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([blob], "reference.png", { type: "image/png" }));
+    input.files = transfer.files;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await expect(dialog.getByText("reference.png")).toBeVisible();
+  await dialog.getByRole("button", { name: /Portrait/ }).click();
+  await dialog.getByTestId("asset-description").fill("Turn this into a warm paper-cut illustration while preserving the composition");
+  await dialog.getByTestId("generate-assets").click();
+  const transformed = dialog.getByTestId("asset-candidate-1");
+  await expect(transformed).toBeVisible();
+  await expect(transformed.getByText("1024 × 1536")).toBeVisible();
+  await expect(dialog.getByTestId("asset-candidate-2")).toHaveCount(0);
+});
+
 async function uploadTestImage(page: Page) {
   await page.getByTestId("file-input").evaluate(async (input: HTMLInputElement) => {
     const canvas = document.createElement("canvas");

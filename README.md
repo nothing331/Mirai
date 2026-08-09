@@ -4,7 +4,7 @@ An image editor where users select a region, apply a localized AI or determinist
 
 ## Status
 
-The finished v0.1 editor supports Lasso-based selection and AI editing, direct color painting with draft-only erasing, local recoloring, generative Remove/Replace/Restyle previews, immutable linear undo/redo, durable local projects, diagnostics, and original-resolution PNG/JPEG export. A deterministic fake provider is enabled by default, so the complete workflow runs without an API key.
+The editor supports one-result AI creation for icon/logo marks, complete images, and whole-image transformations, plus Lasso-based AI editing, direct color painting with draft-only erasing, local recoloring, generative Remove/Replace/Restyle previews, immutable linear undo/redo, durable local projects, diagnostics, and original-resolution PNG/JPEG export. Deterministic fake providers are enabled by default, so every workflow runs without an API key.
 
 Documentation:
 
@@ -22,6 +22,8 @@ npm run dev
 Open `http://localhost:3000`. Saved project metadata is stored in `.local-edit/projects.sqlite`; immutable accepted images and masks are stored under `.local-edit/assets/`. Add `.local-edit/` to backups if you want to retain local projects between machines.
 
 Mirai keeps direct canvas tools in the left rail and shows only the active workflow in the adjacent inspector. Lasso owns Draw/Add/Subtract selection and all selection-based generation. Brush paints a temporary color layer; Eraser removes only that pending paint; Apply records the complete paint session as one reversible edit. Apply before saving or reloading because pending paint is not persisted. Hand pans the image and hides the inspector because it has no settings. Use `L`, `B`, `E`, and `H` for those tools, and `Cmd/Ctrl + Z` or `Cmd/Ctrl + Shift + Z` for undo and redo.
+
+From the empty canvas or sparkle button in the tool rail, **Create with AI** opens three modes. **Mark** collects a structured icon/logo brief and removes its constrained matte locally. **Image** creates a complete image from text. **Transform** accepts one temporary PNG/JPEG reference and preserves its unrequested content while applying a whole-image instruction. Image and Transform support 1024 × 1024, 1536 × 1024, and 1024 × 1536. Every mode makes one low-quality request for one result. Using it opens and auto-saves a new project original with zero edit operations; closing the dialog discards the temporary result and transform reference.
 
 ## Request diagnostics
 
@@ -43,9 +45,12 @@ Copy `.env.example` to `.env.local` when provider configuration is needed. The d
 
 ```bash
 IMAGE_EDIT_PROVIDER=fake
+ASSET_GENERATION_PROVIDER=fake
 ```
 
 For an optional real OpenAI smoke test, set `IMAGE_EDIT_PROVIDER=openai` and provide `OPENAI_API_KEY` in `.env.local`. Keys are read only by the server route and must never be committed.
+
+Real popup creation is configured separately with `ASSET_GENERATION_PROVIDER=openai`. It defaults to `gpt-image-2`, always uses low quality, returns one result, and allows two confirmed requests per browser session. Configure the model and request limit with `OPENAI_ASSET_GENERATION_MODEL` and `OPENAI_ASSET_MAX_BATCHES_PER_SESSION`. Transform uses the Images edit endpoint with one high-fidelity source; Mark uses the generation endpoint and derives transparency locally without a second background-removal service.
 
 Replace operations first use `gpt-5-nano-2025-08-07` to interpret the selected scene and turn short instructions into a structured physical placement plan. The planner is configured with `OPENAI_EDIT_PLANNER_MODEL`, uses two derived highlighted views, and does not generate pixels. If planning fails, the image request is not sent.
 

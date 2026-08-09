@@ -17,12 +17,14 @@ export const diagnosticArtifactNames = [
   "candidate-analysis.json",
   "final-preview.png",
   "provider-response.json",
+  "asset-candidate-1-raw.png",
+  "asset-candidate-1.png",
 ] as const;
 
 export type DiagnosticArtifactName = typeof diagnosticArtifactNames[number];
 export type RequestDiagnosticStatus = "processing" | "succeeded" | "failed";
 export type RequestDiagnosticLevel = "info" | "error";
-export type ProviderCallStage = "intent-planner" | "image-editor";
+export type ProviderCallStage = "intent-planner" | "image-editor" | "asset-generator";
 export type ProviderCallStatus = "processing" | "succeeded" | "failed";
 
 export interface RequestDiagnosticEvent {
@@ -71,7 +73,7 @@ export interface RequestDiagnosticManifest {
   retryOfRequestId: string | null;
   providerRequestId: string | null;
   provider: "fake" | "openai";
-  operation: "remove" | "replace" | "restyle" | null;
+  operation: "remove" | "replace" | "restyle" | "asset-generation" | null;
   boundaryPolicy: EditBoundaryPolicy;
   previewSource: "full-candidate" | "protected-composite" | null;
   status: RequestDiagnosticStatus;

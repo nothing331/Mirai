@@ -42,6 +42,8 @@ The plan assumes approximately 1–2 hours per day. Complete and verify one mile
 | 12. Full-candidate review | Complete | Approximate focus semantics, full-candidate default, optional protected compositing, scope diagnosis, and change-map evidence |
 | 13. Image-first workspace UI | Complete | Compact tool rail, contextual inspector, global command header, responsive layout, keyboard tools, and state-driven review/failure presentation |
 | 14. Focused direct canvas tools | Complete | Lasso-owned generation, direct paint drafts, draft-only erasing, and inspector-free hand navigation |
+| 15. Icon and logo-mark generation | Complete | Structured brief, one-result generation, local transparency, project provenance, persistence, diagnostics, and fake-environment verification |
+| 16. Unified AI creation studio | Complete | One-result low-quality Mark, Image, and Transform modes with three output shapes, one temporary reference, shared provenance, diagnostics, and browser verification |
 
 Update this table whenever a milestone begins or completes.
 
@@ -230,7 +232,7 @@ A user can close the application, reopen a project, continue editing, and export
 
 ## Next development sessions
 
-The v0.1 engineering milestones, focused direct tools, image-first workspace shell, full-candidate review policy, context-aware Replace planner, and reproducible diagnostic workflow are complete. New editor features should enter through the tool rail, contextual inspector, global command menu, dialog, or supporting drawer instead of adding permanent sidebar sections. Keep one primary responsibility per tool; place submodes such as Add/Subtract inside the owning workflow. When an image result looks wrong, pin its request in the diagnostics drawer and use “Copy for coding agent” before changing the pipeline.
+The v0.1 engineering milestones and the first focused asset-generation workflow are complete. Icon/logo generation now enters through a dialog, spends at most one image call per batch, keeps candidates temporary, and converges on the existing project/editor pipeline only after selection. Future work should measure concept-selection rate and transparency warnings before adding wordmarks, vectorization, persistent galleries, or more provider calls. New editor features should enter through the tool rail, contextual inspector, global command menu, dialog, or supporting drawer instead of adding permanent sidebar sections. Keep one primary responsibility per tool; place submodes such as Add/Subtract inside the owning workflow. When an image result looks wrong, pin its request in the diagnostics drawer and use “Copy for coding agent” before changing the pipeline.
 
 ## Plan maintenance
 
