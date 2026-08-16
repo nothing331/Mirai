@@ -1,4 +1,4 @@
-# Mirai — Reversible AI Image Editor
+# Mirai  Reversible AI Image Editor
 
 A local-first AI image editor with selection-aware generation, semantic-fidelity validation, reversible history, and reproducible diagnostics.
 
@@ -8,11 +8,11 @@ Edit an image, compare the result, accept or discard it, and undo any accepted c
 
 ## Features
 
-- **AI editing** — Remove, replace, restyle, transform, and extend images.
-- **Precise control** — Use selections as flexible focus hints or protected edit boundaries.
-- **Safe review** — Compare generated results before accepting them.
-- **Reversible history** — Undo and redo immutable image versions without changing the original.
-- **Local projects** — Save projects, inspect request diagnostics, and export PNG or JPEG.
+- **AI editing** :  Remove, replace, restyle, transform, and extend images.
+- **Precise control** :  Use selections as flexible focus hints or protected edit boundaries.
+- **Safe review** :  Compare generated results before accepting them.
+- **Reversible history** : Undo and redo immutable image versions without changing the original.
+- **Local projects** : Save projects, inspect request diagnostics, and export PNG or JPEG.
 
 <!-- Add three examples here: selection-aware editing, before/after comparison, and history or diagnostics. -->
 
