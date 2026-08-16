@@ -49,6 +49,7 @@ The rail chooses the workflow; the inspector configures it; the canvas performs 
 - Brush owns pending paint.
 - Eraser corrects pending paint only.
 - Hand owns navigation and removes the inspector because it has no settings.
+- Create with AI, Lasso Edit, AI Transform, and AI Extend form one high-visibility group at the start of the rail. Lasso Edit belongs in this group because Remove, Replace, and Style are core selection-based AI operations, while its deterministic Color option remains available in the same inspector.
 - Transform is image-wide but behaves as a first-class rail selection; its presets and controls live in the inspector.
 - Size & position, Text, and Watermark are direct rail workflows. Their inspector settings update a source-space canvas draft immediately. Leaving a changed draft opens one Save edit / Discard changes / Keep editing decision; saving creates one accepted version without opening comparison.
 - Every icon-only rail control must reveal its full name on hover and keyboard focus. Show its shortcut when one exists.
@@ -134,6 +135,7 @@ Maintain comfortable pointer targets even when the visible icon is 16–18px.
 
 ### Tool rail
 
+- AI workflows appear first and share the acid surface and compact `AI` marker established by Create with AI. When Lasso Edit, AI Transform, or AI Extend is selected, it uses the standard selected ink surface with acid content.
 - Inactive: muted icon on the warm neutral rail.
 - Hover: lighter surface and ink icon.
 - Selected: ink surface with acid icon.

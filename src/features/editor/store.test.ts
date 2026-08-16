@@ -333,6 +333,16 @@ describe("filled selection preview and acceptance", () => {
     expect(useEditorStore.getState().preview).toBeNull();
   });
 
+  it("returns to closed-shape drawing when a refined selection is cleared", () => {
+    useEditorStore.getState().fillSelection(firstPixelContour);
+    useEditorStore.getState().setSelectionMode("subtract");
+    useEditorStore.getState().clearSelection();
+
+    const state = useEditorStore.getState();
+    expect(state.selectionMode).toBe("draw");
+    expect(state.selectionMask?.data.every((alpha) => alpha === 0)).toBe(true);
+  });
+
   it("keeps brush and eraser gestures outside history until paint is applied", () => {
     useEditorStore.getState().setColor("#ff0000");
     useEditorStore.getState().applyPaintStroke([{ x: 0, y: 0 }]);
@@ -420,6 +430,40 @@ describe("filled selection preview and acceptance", () => {
       projectId: "saved-project-id",
       projectName: "Saved project",
       currentVersionId: original.id,
+    });
+  });
+
+  it("starts a generated asset as an immutable project original with provenance and no edit", () => {
+    useEditorStore.getState().loadImage(original, {
+      projectId: "generated-project",
+      projectName: "Orbital mark",
+      lastRequestId: "generation-request",
+      projectOrigin: {
+        kind: "asset-generation",
+        requestId: "generation-request",
+        creationMode: "mark",
+        assetType: "logo-mark",
+        description: "An orbital compass",
+        style: "minimal-geometric",
+        colorMode: "custom",
+        colors: ["#171714"],
+        format: "square-mark",
+        width: 1024,
+        height: 1024,
+        provider: "fake",
+        model: "fake-asset-generator",
+        quality: "low",
+      },
+    });
+
+    expect(useEditorStore.getState()).toMatchObject({
+      projectId: "generated-project",
+      originalVersionId: original.id,
+      currentVersionId: original.id,
+      lastRequestId: "generation-request",
+      projectOrigin: { kind: "asset-generation", requestId: "generation-request" },
+      versions: [original],
+      operations: [],
     });
   });
 

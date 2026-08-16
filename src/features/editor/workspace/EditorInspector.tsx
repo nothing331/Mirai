@@ -16,11 +16,11 @@ import { WatermarkInspector } from "./WatermarkInspector";
 import type { ProviderCapabilities, WorkspaceWorkflow } from "./workspace-types";
 import type { WorkspacePhase } from "./workspace-phase";
 
-const editModes: Array<{ value: EditType; label: string; accessibleLabel: string }> = [
-  { value: "recolor", label: "Color", accessibleLabel: "Color mode" },
-  { value: "remove", label: "Remove", accessibleLabel: "Remove" },
-  { value: "replace", label: "Replace", accessibleLabel: "Add / replace" },
-  { value: "restyle", label: "Style", accessibleLabel: "Restyle" },
+const editModes: Array<{ value: EditType; label: string; description: string; accessibleLabel: string }> = [
+  { value: "recolor", label: "Color", description: "Keep texture", accessibleLabel: "Color mode" },
+  { value: "remove", label: "Remove", description: "Fill the gap", accessibleLabel: "Remove" },
+  { value: "replace", label: "Replace", description: "Add new content", accessibleLabel: "Add / replace" },
+  { value: "restyle", label: "Style", description: "Change its look", accessibleLabel: "Restyle" },
 ];
 
 export function EditorInspector({
@@ -71,10 +71,12 @@ export function EditorInspector({
     setFakeScenario: editor.setFakeScenario,
     setBoundaryPolicy: editor.setBoundaryPolicy,
     setSelectionMode: editor.setSelectionMode,
+    clearSelection: editor.clearSelection,
     commitPaintSession: editor.commitPaintSession,
     discardPaintSession: editor.discardPaintSession,
   })));
   const processing = phase === "processing";
+  const hasSelection = phase === "selected" || phase === "processing" || phase === "failed";
   const requestLimitReached = providerCapabilities?.provider === "openai" && realRequestsUsed >= providerCapabilities.maxRealRequestsPerSession;
 
   if (phase === "empty") {
@@ -144,33 +146,16 @@ export function EditorInspector({
     <div className="inspector-enter flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4">
         <div className="sticky top-0 z-10 flex items-center justify-between bg-paper py-3">
-          <InspectorHeading eyebrow="Edit" title={phase === "selected" ? "Selection ready" : processing ? "Generating" : phase === "failed" ? "Request failed" : "Configure edit"} />
+          <InspectorHeading eyebrow="Lasso edit" title={processing ? "Generating" : phase === "failed" ? "Request failed" : hasSelection ? "Edit selected area" : "Choose an edit"} />
           <span className={cn("size-2 rounded-full", phase === "selected" ? "bg-acid ring-1 ring-ink" : processing ? "animate-pulse bg-acid" : phase === "failed" ? "bg-accent" : "bg-line")} aria-hidden="true" />
         </div>
 
-        <section className="grid gap-3 border-t border-line py-3" aria-label="Lasso selection settings">
-          <span className="font-mono text-[8px] uppercase tracking-[.12em] text-muted">Selection</span>
-          <div className="grid grid-cols-3 bg-[#e8e5dc] p-0.5" role="radiogroup" aria-label="Selection mode">
-            {([['draw', 'Draw'], ['add', 'Add'], ['subtract', 'Subtract']] as Array<[SelectionMode, string]>).map(([value, label]) => (
-              <button key={value} type="button" role="radio" aria-checked={state.selectionMode === value} className={cn("h-8 font-mono text-[8px] uppercase text-muted hover:bg-white/70 hover:text-ink", state.selectionMode === value && "bg-ink text-paper hover:bg-ink hover:text-acid")} onClick={() => state.setSelectionMode(value)}>{label}</button>
-            ))}
+        <section className="grid gap-3 border-t border-line py-3" aria-labelledby="edit-operation-label">
+          <div className="grid gap-1">
+            <span id="edit-operation-label" className="font-mono text-[8px] uppercase tracking-[.12em] text-muted">Edit operation</span>
+            <p className="text-[10px] leading-relaxed text-muted">Choose what should happen inside the selected area.</p>
           </div>
-          {state.selectionMode !== "draw" && <>
-            <CompactSlider label="Size" value={`${state.brushSize}px`} min={4} max={160} step={1} sliderValue={state.brushSize} onChange={state.setBrushSize} />
-            <CompactSlider label="Softness" value={`${Math.round(state.maskSoftness * 100)}%`} min={0} max={0.8} step={0.05} sliderValue={state.maskSoftness} onChange={state.setMaskSoftness} />
-          </>}
-        </section>
-
-        {state.paintSession && (
-          <div className="grid gap-2 border-l-2 border-acid bg-[#edf5c4] p-3 text-[10px] leading-relaxed text-ink">
-            <span>Paint is still pending. Apply or discard it before running a selection edit.</span>
-            <div className="flex gap-2"><button type="button" className="h-8 bg-ink px-2 font-bold text-paper" onClick={state.commitPaintSession}>Apply paint</button><button type="button" className="h-8 px-2 font-bold hover:bg-white/60" onClick={state.discardPaintSession}>Discard</button></div>
-          </div>
-        )}
-
-        <section className="grid gap-3 border-t border-line py-3">
-          <span className="font-mono text-[8px] uppercase tracking-[.12em] text-muted">Operation</span>
-          <div className="grid grid-cols-4 bg-[#e8e5dc] p-0.5" role="radiogroup" aria-label="Edit operation">
+          <div className="grid grid-cols-2 gap-1 bg-[#e8e5dc] p-1" role="radiogroup" aria-label="Edit operation">
             {editModes.map((mode) => (
               <button
                 key={mode.value}
@@ -178,10 +163,11 @@ export function EditorInspector({
                 role="radio"
                 aria-checked={state.editType === mode.value}
                 aria-label={mode.accessibleLabel}
-                className={cn("h-9 px-1 font-mono text-[8px] uppercase tracking-[-.02em] text-muted outline-none hover:bg-white/70 hover:text-ink focus-visible:ring-2 focus-visible:ring-accent", state.editType === mode.value && "bg-ink text-paper hover:bg-ink hover:text-acid")}
+                className={cn("grid min-h-12 content-center gap-0.5 px-2 text-left text-muted outline-none hover:bg-white/70 hover:text-ink focus-visible:ring-2 focus-visible:ring-accent", state.editType === mode.value && "bg-ink text-paper hover:bg-ink hover:text-acid")}
                 onClick={() => state.setEditType(mode.value)}
               >
-                {mode.label}
+                <span className="text-[10px] font-bold">{mode.label}</span>
+                <span className={cn("font-mono text-[7px] uppercase tracking-[.04em]", state.editType === mode.value ? "text-paper/65" : "text-muted")}>{mode.description}</span>
               </button>
             ))}
           </div>
@@ -208,6 +194,43 @@ export function EditorInspector({
                 }}
               />
             </label>
+          )}
+        </section>
+
+        {state.paintSession && (
+          <div className="grid gap-2 border-l-2 border-acid bg-[#edf5c4] p-3 text-[10px] leading-relaxed text-ink">
+            <span>Paint is still pending. Apply or discard it before running a selection edit.</span>
+            <div className="flex gap-2"><button type="button" className="h-8 bg-ink px-2 font-bold text-paper" onClick={state.commitPaintSession}>Apply paint</button><button type="button" className="h-8 px-2 font-bold hover:bg-white/60" onClick={state.discardPaintSession}>Discard</button></div>
+          </div>
+        )}
+
+        <section className="grid gap-3 border-t border-line py-3" aria-label="Selection area">
+          <span className="font-mono text-[8px] uppercase tracking-[.12em] text-muted">Selection area</span>
+          {hasSelection ? (
+            <>
+              <div className="flex items-center gap-2 border-l-2 border-acid bg-[#edf5c4] px-3 py-2.5 text-[10px] font-bold text-ink">
+                <span className="size-1.5 bg-ink" aria-hidden="true" />Area selected
+              </div>
+              <div className="grid grid-cols-2 gap-1" role="group" aria-label="Refine selection">
+                {([['add', 'Add area'], ['subtract', 'Subtract area']] as Array<[SelectionMode, string]>).map(([value, label]) => (
+                  <button key={value} type="button" aria-pressed={state.selectionMode === value} className={cn("h-9 border border-line bg-paper px-2 font-mono text-[8px] uppercase text-muted outline-none hover:border-ink hover:text-ink focus-visible:ring-2 focus-visible:ring-accent", state.selectionMode === value && "border-ink bg-ink text-paper hover:bg-ink hover:text-acid")} onClick={() => state.setSelectionMode(value)}>{label}</button>
+                ))}
+              </div>
+              {state.selectionMode !== "draw" && <>
+                <CompactSlider label="Refine size" value={`${state.brushSize}px`} min={4} max={160} step={1} sliderValue={state.brushSize} onChange={state.setBrushSize} />
+                <CompactSlider label="Edge softness" value={`${Math.round(state.maskSoftness * 100)}%`} min={0} max={0.8} step={0.05} sliderValue={state.maskSoftness} onChange={state.setMaskSoftness} />
+              </>}
+              <div className="grid grid-cols-2 border-t border-line pt-2">
+                <button type="button" className="h-8 text-left font-mono text-[8px] uppercase text-muted outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-accent" onClick={() => { state.clearSelection(); state.setSelectionMode("draw"); }}>Redraw selection</button>
+                <button type="button" className="h-8 text-right font-mono text-[8px] uppercase text-muted outline-none hover:text-accent focus-visible:ring-2 focus-visible:ring-accent" onClick={() => { state.clearSelection(); state.setSelectionMode("draw"); }}>Clear selection</button>
+              </div>
+            </>
+          ) : (
+            <div className="grid gap-2 border-l-2 border-ink bg-[#e8e5dc] p-3">
+              <strong className="text-[10px] text-ink">Draw around the area to edit</strong>
+              <p className="text-[10px] leading-relaxed text-muted">Drag a closed shape directly on the image. You can refine its edge afterward.</p>
+              <button type="button" aria-pressed={state.selectionMode === "draw"} className="mt-1 h-9 bg-ink px-3 text-left text-[10px] font-bold text-paper outline-none hover:text-acid focus-visible:ring-2 focus-visible:ring-accent" onClick={() => state.setSelectionMode("draw")}>Draw selection on canvas</button>
+            </div>
           )}
         </section>
 

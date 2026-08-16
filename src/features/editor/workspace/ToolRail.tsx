@@ -1,30 +1,34 @@
 "use client";
 
-import { Brush, Crop, Eraser, Expand, Hand, LassoSelect, PanelLeftClose, PanelLeftOpen, Stamp, Type, WandSparkles } from "lucide-react";
+import { Brush, Crop, Eraser, Expand, Hand, LassoSelect, PanelLeftClose, PanelLeftOpen, Sparkles, Stamp, Type, WandSparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEditorStore } from "../store";
 import type { Tool } from "../types";
 import type { WorkspaceWorkflow } from "./workspace-types";
 
-const canvasTools: Array<{ value: Tool; label: string; shortcut: string; icon: typeof Brush }> = [
-  { value: "lasso", label: "Lasso", shortcut: "L", icon: LassoSelect },
+const localCanvasTools: Array<{ value: Tool; label: string; shortcut: string; icon: typeof Brush }> = [
   { value: "brush", label: "Brush", shortcut: "B", icon: Brush },
   { value: "eraser", label: "Eraser", shortcut: "E", icon: Eraser },
   { value: "pan", label: "Hand", shortcut: "H", icon: Hand },
 ];
 
-const workflowTools: Array<{ kind: Exclude<WorkspaceWorkflow["kind"], "canvas">; label: string; shortcut?: string; icon: typeof Brush; testId?: string }> = [
+const aiWorkflowTools: Array<{ kind: Exclude<WorkspaceWorkflow["kind"], "canvas">; label: string; shortcut: string; icon: typeof Brush; testId: string }> = [
+  { kind: "transform", label: "AI Transform", shortcut: "T", icon: WandSparkles, testId: "open-transform" },
+  { kind: "extend", label: "AI Extend", shortcut: "X", icon: Expand, testId: "open-extend" },
+];
+
+const directWorkflowTools: Array<{ kind: Exclude<WorkspaceWorkflow["kind"], "canvas">; label: string; icon: typeof Brush; testId: string }> = [
   { kind: "size-position", label: "Size & position", icon: Crop, testId: "open-size-position" },
   { kind: "text", label: "Text", icon: Type, testId: "open-text" },
   { kind: "watermark", label: "Watermark", icon: Stamp, testId: "open-watermark" },
-  { kind: "transform", label: "AI Transform", shortcut: "T", icon: WandSparkles, testId: "open-transform" },
-  { kind: "extend", label: "Extend", shortcut: "X", icon: Expand, testId: "open-extend" },
 ];
 
-export function ToolRail({ collapsed, disabled, workflow, onSelectWorkflow, onToggleInspector }: {
+export function ToolRail({ collapsed, disabled, generationDisabled, workflow, onGenerateAsset, onSelectWorkflow, onToggleInspector }: {
   collapsed: boolean;
   disabled: boolean;
+  generationDisabled: boolean;
   workflow: WorkspaceWorkflow;
+  onGenerateAsset: () => void;
   onSelectWorkflow: (workflow: WorkspaceWorkflow) => void;
   onToggleInspector: () => void;
 }) {
@@ -33,16 +37,40 @@ export function ToolRail({ collapsed, disabled, workflow, onSelectWorkflow, onTo
 
   return (
     <nav className="relative z-30 flex h-12 items-center overflow-x-auto overflow-y-hidden border-t border-line bg-[#e9e7df] md:h-auto md:flex-col md:overflow-visible md:border-r md:border-t-0" aria-label="Editor tools">
-      <div className="flex items-center justify-center md:w-full md:flex-col md:py-2" role="radiogroup" aria-label="Canvas and direct editing tools">
-        {canvasTools.map(({ value, label, shortcut, icon: Icon }) => (
+      <button
+        data-testid="rail-asset-generator"
+        type="button"
+        className="group relative grid size-11 shrink-0 place-items-center bg-acid text-ink outline-none transition-colors hover:bg-accent hover:text-white focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent disabled:pointer-events-none disabled:opacity-35 md:mt-2"
+        aria-label="Create with AI"
+        title="Create with AI"
+        disabled={generationDisabled}
+        onClick={onGenerateAsset}
+      >
+        <Sparkles className="size-[17px]" />
+        <span className="absolute bottom-1 right-1 font-mono text-[7px] font-bold uppercase leading-none group-hover:text-white">AI</span>
+        <ToolLabel label="Create with AI" />
+      </button>
+      <div className="flex items-center justify-center md:w-full md:flex-col" role="radiogroup" aria-label="Editor workflows">
+        <RailButton variant="ai" testId="open-lasso-edit" label="Lasso edit" shortcut="L" selected={workflow.kind === "canvas" && workflow.tool === "lasso"} disabled={disabled} onClick={() => onSelectWorkflow({ kind: "canvas", tool: "lasso" })}>
+          <LassoSelect className="size-[17px]" />
+          <AiMarker selected={workflow.kind === "canvas" && workflow.tool === "lasso"} />
+        </RailButton>
+        {aiWorkflowTools.map(({ kind, label, shortcut, icon: Icon, testId }) => (
+          <RailButton key={kind} variant="ai" testId={testId} label={label} shortcut={shortcut} selected={workflow.kind === kind} disabled={disabled} onClick={() => onSelectWorkflow({ kind } as WorkspaceWorkflow)}>
+            <Icon className="size-[17px]" />
+            <AiMarker selected={workflow.kind === kind} />
+          </RailButton>
+        ))}
+        <span className="mx-1 h-7 w-px shrink-0 bg-line md:mx-0 md:my-2 md:h-px md:w-7" aria-hidden="true" />
+        {localCanvasTools.map(({ value, label, shortcut, icon: Icon }) => (
           <RailButton key={value} label={label} shortcut={shortcut} selected={workflow.kind === "canvas" && workflow.tool === value} disabled={disabled} onClick={() => onSelectWorkflow({ kind: "canvas", tool: value })}>
             <Icon className="size-[17px]" />
             {value === "brush" && hasPendingPaint && <PendingDot label="Paint pending" />}
           </RailButton>
         ))}
         <span className="mx-1 h-7 w-px shrink-0 bg-line md:mx-0 md:my-1 md:h-px md:w-7" aria-hidden="true" />
-        {workflowTools.map(({ kind, label, shortcut, icon: Icon, testId }) => (
-          <RailButton key={kind} testId={testId} label={label} shortcut={shortcut} selected={workflow.kind === kind} disabled={disabled} onClick={() => onSelectWorkflow({ kind } as WorkspaceWorkflow)}>
+        {directWorkflowTools.map(({ kind, label, icon: Icon, testId }) => (
+          <RailButton key={kind} testId={testId} label={label} selected={workflow.kind === kind} disabled={disabled} onClick={() => onSelectWorkflow({ kind } as WorkspaceWorkflow)}>
             <Icon className="size-[17px]" />
             {hasPendingLocalDraft && workflow.kind === kind && <PendingDot label="Local edit pending" />}
           </RailButton>
@@ -62,7 +90,7 @@ export function ToolRail({ collapsed, disabled, workflow, onSelectWorkflow, onTo
   );
 }
 
-function RailButton({ label, shortcut, selected, disabled, testId, onClick, children }: { label: string; shortcut?: string; selected: boolean; disabled: boolean; testId?: string; onClick: () => void; children: React.ReactNode }) {
+function RailButton({ label, shortcut, selected, disabled, testId, variant = "standard", onClick, children }: { label: string; shortcut?: string; selected: boolean; disabled: boolean; testId?: string; variant?: "standard" | "ai"; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
       type="button"
@@ -74,6 +102,7 @@ function RailButton({ label, shortcut, selected, disabled, testId, onClick, chil
       disabled={disabled}
       className={cn(
         "group relative grid size-11 shrink-0 place-items-center text-muted outline-none transition-[background-color,color] hover:bg-white/70 hover:text-ink focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent disabled:opacity-30 md:mx-auto",
+        variant === "ai" && "bg-acid text-ink hover:bg-accent hover:text-white",
         selected && "bg-ink text-acid hover:bg-ink hover:text-acid",
       )}
       onClick={onClick}
@@ -87,6 +116,10 @@ function RailButton({ label, shortcut, selected, disabled, testId, onClick, chil
 
 function PendingDot({ label }: { label: string }) {
   return <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-acid ring-1 ring-ink" aria-label={label} />;
+}
+
+function AiMarker({ selected }: { selected: boolean }) {
+  return <span className={cn("absolute bottom-1 right-1 font-mono text-[7px] font-bold uppercase leading-none", selected ? "text-acid group-hover:text-acid" : "group-hover:text-white")}>AI</span>;
 }
 
 function ToolLabel({ label, shortcut }: { label: string; shortcut?: string }) {

@@ -12,7 +12,7 @@ The project initially targets normal users rather than professional design workf
 
 ## Current state
 
-The editor supports PNG/JPEG upload, pan and zoom, conservatively cleaned Lasso selection with internal Add/Subtract refinement, direct non-destructive paint drafts, live source-space Crop/Resize/Rotate/Flip drafts, draggable text and watermark overlays, deterministic selection recoloring, generative Remove/Replace/Restyle operations, preset-driven full-image Transform, and dimension-changing Smart Extend. The image-first workspace gives each canvas tool one job: Lasso owns selection edits and generation, Brush paints, Eraser corrects pending paint, Hand pans without an inspector, Size & position owns deterministic geometry, Text and Watermark own movable overlays, and the image-wide Transform and Extend workflows occupy the contextual inspector as first-class rail actions. Rail icons reveal their full names on hover or keyboard focus. Direct deterministic drafts update the ordinary canvas immediately; switching away from a changed draft asks the user to save, discard, or keep editing, and Save routes through shared immutable acceptance without comparison. Replace requests use a low-cost multimodal intent planner to turn short instructions into scene-aware structured plans before image generation. Generative Transform uses a separate source-content planner, deterministic recipe construction, maskless image editing, and post-generation semantic fidelity validation. Extend separates cached semantic scene analysis from deterministic crop/placement, previews its target frame before generation, and restores the retained source core after low-quality outpainting. Generative editing uses provider-neutral server boundaries, deterministic fake implementations by default, and optional OpenAI adapters. The complete normalized provider candidate is the default review preview for ordinary generative edits; protected localized edits and Extend apply application-owned exact compositing. Each request creates a reproducible diagnostic bundle with its timeline, masks, provider calls, prompts, plans or recipe configuration, candidate analysis, Transform fidelity assessment, change map, and final preview. Accepted operations, versions, masks, and referenced overlay assets form linear immutable history whose versions may have different dimensions, and projects can be saved to local SQLite metadata plus immutable filesystem assets, reopened, and exported as PNG or JPEG.
+The editor supports PNG/JPEG upload plus a unified AI creation studio for icon/logo marks and complete text-to-image creation. Every creation request returns one low-quality result; marks receive local matte removal, while complete images remain intact. Create Image combines a user prompt with an application-owned visual treatment and one of four destination formats whose dimensions are resolved on the server. The editor also supports pan and zoom, conservatively cleaned Lasso selection with internal Add/Subtract refinement, direct non-destructive paint drafts, live source-space Crop/Resize/Rotate/Flip drafts, draggable text and watermark overlays, deterministic selection recoloring, generative Remove/Replace/Restyle operations, preset-driven full-image Transform, and dimension-changing Smart Extend. The image-first workspace gives each canvas tool one job: Lasso owns selection edits and generation, Brush paints, Eraser corrects pending paint, Hand pans without an inspector, Size & position owns deterministic geometry, Text and Watermark own movable overlays, and the image-wide Transform and Extend workflows occupy the contextual inspector as first-class rail actions. Rail icons reveal their full names on hover or keyboard focus. Direct deterministic drafts update the ordinary canvas immediately; switching away from a changed draft asks the user to save, discard, or keep editing, and Save routes through shared immutable acceptance without comparison. Replace requests use a low-cost multimodal intent planner to turn short instructions into scene-aware structured plans before image generation. Generative Transform uses a separate source-content planner, deterministic recipe construction, maskless image editing, and post-generation semantic fidelity validation. Extend separates cached semantic scene analysis from deterministic crop/placement, previews its target frame before generation, and restores the retained source core after low-quality outpainting. Generative editing and creation use provider-neutral server boundaries, deterministic fake implementations by default, and optional OpenAI adapters. The complete normalized provider candidate is the default review preview for ordinary generative edits; protected localized edits and Extend apply application-owned exact compositing. Each request creates a reproducible diagnostic bundle with its timeline, masks, provider calls, prompts, plans or recipe configuration, candidate analysis, Transform fidelity assessment, change map, and final preview. Accepted operations, versions, masks, and referenced overlay assets form linear immutable history whose versions may have different dimensions, and projects can be saved to local SQLite metadata plus immutable filesystem assets, reopened, and exported as PNG or JPEG.
 
 ## v0.1 scope
 
@@ -25,6 +25,7 @@ Upload → canvas → manual mask → local recolor → generative edit → hist
 ### Included
 
 - PNG and JPEG upload
+- one-result, low-quality AI creation for structured marks and complete images with visual treatments and destination formats
 - image canvas with pan and zoom
 - conservative closed-contour cleanup with diagnostics and Lasso-owned Add/Subtract refinement
 - direct color painting with draft-only erasing and one-step Apply/Discard
@@ -49,7 +50,8 @@ Upload → canvas → manual mask → local recolor → generative edit → hist
 - automatic LLM prompt routing
 - batch editing
 - mobile applications
-- text-to-image generation
+- wordmarks and typography generation
+- multi-reference generation, generation galleries, and advanced strength/model controls
 - automatic object selection, unless the core milestones finish early
 
 ## Technology
@@ -62,7 +64,7 @@ Upload → canvas → manual mask → local recolor → generative edit → hist
 - Sharp for server-side provider input normalization
 - SQLite via the portable `sql.js` runtime for local metadata
 - local filesystem asset storage during development
-- one image-edit provider behind an application-owned interface
+- image-edit and asset-generation providers behind application-owned interfaces
 
 This starts as a feature-oriented modular monolith. A small Python segmentation service may be introduced later if automatic object selection requires it.
 
@@ -294,6 +296,7 @@ These decisions are intentionally kept here until the project becomes large enou
 | Request diagnostics | Structured local manifests plus directly inspectable artifacts | Accepted |
 | Replace intent planning | Structured multimodal plan before image generation | Accepted |
 | Generative selection semantics | Approximate focus by default; explicit protected boundary available | Accepted |
+| AI creation cost boundary | One low-quality result per confirmed call; four server-owned destination formats; local matte removal only for marks; persist only the chosen original | Accepted |
 
 ## Code documentation policy
 

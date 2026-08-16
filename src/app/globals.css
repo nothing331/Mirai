@@ -54,6 +54,7 @@ button, select, input, textarea { transition: border-color 140ms ease, backgroun
 .inspector-enter { animation: inspector-enter 160ms ease-out both; }
 .preview-enter { animation: preview-enter 180ms ease-out both; }
 .selection-chip { animation: selection-chip-enter 150ms ease-out both; }
+.asset-dialog-enter { animation: preview-enter 180ms ease-out both; }
 .transform-dialog-enter { animation: transform-dialog-enter 220ms cubic-bezier(.2,.8,.2,1) both; }
 
 @media (prefers-reduced-motion: reduce) {

@@ -27,6 +27,8 @@ const visualArtifacts: Array<{ name: DiagnosticArtifactName; label: string; note
   { name: "candidate-normalized.png", label: "09 / Normalized", note: "Provider candidate normalized to the requested editor dimensions" },
   { name: "change-map.png", label: "10 / Change map", note: "Material candidate differences measured without altering the result" },
   { name: "final-preview.png", label: "11 / Final preview", note: "Complete candidate or protected composite according to the recorded policy" },
+  { name: "asset-candidate-1-raw.png", label: "A1 / Provider result", note: "Complete image returned by the creation provider" },
+  { name: "asset-candidate-1.png", label: "A1 / Ready result", note: "Mode-specific output prepared for the editor" },
 ];
 
 interface DiagnosticsDrawerProps {
@@ -132,7 +134,7 @@ export function DiagnosticsDrawer({ projectId, focusRequestId, open, onClose }: 
   }
 
   const agentMessage = useMemo(() => manifest ? [
-    `Inspect the image-edit diagnostic for project ${manifest.projectId}, request ${manifest.requestId}.`,
+    `Inspect the provider diagnostic for project ${manifest.projectId}, request ${manifest.requestId}.`,
     `Manifest: ${manifest.bundlePath}/manifest.json`,
     `Status: ${manifest.status}${manifest.error ? ` — ${manifest.error.message}` : ""}.`,
     `Boundary policy: ${manifest.boundaryPolicy}. Preview source: ${manifest.previewSource ?? "not recorded"}.`,

@@ -4,6 +4,8 @@ import type { ChangeEvent } from "react";
 import { useCallback, useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { DiagnosticsDrawer } from "@/features/diagnostics/DiagnosticsDrawer";
+import { AssetGenerationDialog, type DisplayedAssetCandidate } from "@/features/asset-generation/AssetGenerationDialog";
+import { candidateDataUrl } from "@/features/asset-generation/asset-generation-client";
 import { cn } from "@/lib/utils";
 import { decodeImage } from "./image-data";
 import { maskHasSelection } from "./mask";
@@ -60,6 +62,7 @@ export function EditorWorkspace() {
   const [savedProjects, setSavedProjects] = useState<SavedProjectSummary[]>([]);
   const [exportFormat, setExportFormat] = useState<ExportFormat>("image/png");
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [assetGeneratorOpen, setAssetGeneratorOpen] = useState(false);
   const [workflow, setWorkflow] = useState<WorkspaceWorkflow>(() => ({ kind: "canvas", tool: useEditorStore.getState().tool }));
   const [pendingTransition, setPendingTransition] = useState<PendingTransition | null>(null);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(() => !useEditorStore.getState().currentVersionId);
@@ -275,6 +278,42 @@ export function EditorWorkspace() {
     }
   }
 
+  async function handleUseGeneratedAsset(candidate: DisplayedAssetCandidate) {
+    if (editor.currentVersionId && !window.confirm("Start a new project from this generated design? Your current project remains available only if it was saved.")) return false;
+    const blob = await fetch(candidateDataUrl(candidate.candidateBase64)).then((response) => response.blob());
+    const version = await decodeImage(new File([blob], "generated-image.png", { type: "image/png" }));
+    const description = candidate.request.mode === "mark" ? candidate.request.brief.description : candidate.request.prompt;
+    const name = generatedProjectName(description, candidate.request.mode, candidate.request.mode === "mark" ? candidate.request.brief.assetType : undefined);
+    const markBrief = candidate.request.mode === "mark" ? candidate.request.brief : null;
+    editor.loadImage(version, {
+      projectId: candidate.response.projectId,
+      projectName: name,
+      lastRequestId: candidate.response.requestId,
+      projectOrigin: {
+        kind: "asset-generation",
+        requestId: candidate.response.requestId,
+        creationMode: candidate.request.mode,
+        ...(markBrief ? { assetType: markBrief.assetType, style: markBrief.style, colorMode: markBrief.colorMode } : {}),
+        ...(candidate.request.mode === "image" ? { treatment: candidate.request.treatment } : {}),
+        description,
+        colors: markBrief?.colors ?? [],
+        format: candidate.request.format,
+        width: candidate.width,
+        height: candidate.height,
+        provider: candidate.response.provider,
+        model: candidate.response.model,
+        quality: candidate.response.quality,
+      },
+    });
+    setWorkflow({ kind: "canvas", tool: "lasso" });
+    setInspectorCollapsed(false);
+    await saveEditorProject(useEditorStore.getState());
+    setSavedProjects(await listSavedProjects());
+    setAssetGeneratorOpen(false);
+    editor.setError(null);
+    return true;
+  }
+
   return (
     <>
       <main className="h-dvh overflow-hidden bg-[#cfcdc5] text-ink">
@@ -296,7 +335,9 @@ export function EditorWorkspace() {
             <ToolRail
               collapsed={inspectorCollapsed}
               disabled={!editor.currentVersionId || phase === "processing" || phase === "preview"}
+              generationDisabled={busyAction !== null}
               workflow={workflow}
+              onGenerateAsset={() => setAssetGeneratorOpen(true)}
               onSelectWorkflow={selectWorkflow}
               onToggleInspector={() => setInspectorCollapsed((current) => !current)}
             />
@@ -318,10 +359,11 @@ export function EditorWorkspace() {
               </div>
             )}
           </aside>
-          <CanvasFrame busyAction={busyAction} onUpload={handleUpload} extendSelected={workflow.kind === "extend"} onAdjustTransform={handleAdjustTransform} onAdjustExtend={handleAdjustExtend} />
+          <CanvasFrame busyAction={busyAction} onUpload={handleUpload} onGenerateAsset={() => setAssetGeneratorOpen(true)} extendSelected={workflow.kind === "extend"} onAdjustTransform={handleAdjustTransform} onAdjustExtend={handleAdjustExtend} />
         </section>
       </main>
       <DiagnosticsDrawer projectId={editor.projectId} focusRequestId={editor.lastRequestId} open={diagnosticsOpen} onClose={() => setDiagnosticsOpen(false)} />
+      <AssetGenerationDialog open={assetGeneratorOpen} onClose={() => setAssetGeneratorOpen(false)} onUseCandidate={handleUseGeneratedAsset} />
       {pendingTransition && editor.localDraft ? (
         <PendingLocalEditDialog
           editName={editor.localDraft.type}
@@ -343,6 +385,13 @@ export function EditorWorkspace() {
       ) : null}
     </>
   );
+}
+
+function generatedProjectName(description: string, mode: "mark" | "image", assetType?: "icon" | "logo-mark"): string {
+  const compact = description.trim().replace(/\s+/g, " ").slice(0, 42).replace(/[.,;:!?-]+$/, "");
+  const fallback = mode === "mark" ? assetType === "icon" ? "Generated icon" : "Generated mark" : "Generated image";
+  const suffix = mode === "mark" ? assetType === "icon" ? " icon" : " mark" : " image";
+  return `${compact || fallback}${compact ? suffix : ""}`;
 }
 
 function canSaveLocalDraft(draft: LocalEditDraft) {
