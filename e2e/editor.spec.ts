@@ -4,6 +4,16 @@ test("fake asset generator creates a transparent, auto-saved project with no edi
   const conceptName = `Orbital compass ${Date.now()}`;
   await page.goto("/");
   await expect(page.getByTestId("rail-asset-generator")).toBeVisible();
+  const aiRailButtons = page.locator('[data-testid="rail-asset-generator"], [data-testid="open-lasso-edit"], [data-testid="open-transform"], [data-testid="open-extend"]');
+  await expect(aiRailButtons).toHaveCount(4);
+  await expect(page.getByTestId("rail-asset-generator")).toHaveClass(/bg-acid/);
+  await expect(page.getByTestId("open-lasso-edit")).toHaveClass(/bg-ink/);
+  await expect(page.getByTestId("open-transform")).toHaveClass(/bg-acid/);
+  await expect(page.getByTestId("open-extend")).toHaveClass(/bg-acid/);
+  const aiButtonPositions = await aiRailButtons.evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().top));
+  expect(aiButtonPositions).toEqual([...aiButtonPositions].sort((left, right) => left - right));
+  const brushTop = await page.getByRole("radio", { name: "Brush" }).evaluate((button) => button.getBoundingClientRect().top);
+  expect(aiButtonPositions.at(-1)).toBeLessThan(brushTop);
   await expect(page.locator("header").getByRole("button", { name: "Create with AI" })).toHaveCount(0);
   await page.getByTestId("rail-asset-generator").click();
   const dialog = page.getByRole("dialog", { name: "Create with AI" });
@@ -37,6 +47,7 @@ test("fake asset generator creates a transparent, auto-saved project with no edi
 });
 
 test("AI creator applies a treatment and destination format to one complete image", async ({ page }) => {
+  const imageConcept = `Mount Everest at sunrise ${Date.now()}`;
   await page.goto("/");
   await page.getByTestId("rail-asset-generator").click();
   const dialog = page.getByRole("dialog", { name: "Create with AI" });
@@ -45,8 +56,8 @@ test("AI creator applies a treatment and destination format to one complete imag
   await expect(dialog.getByRole("button", { name: /Auto/ })).toHaveAttribute("aria-pressed", "true");
   await dialog.getByRole("button", { name: /Sketch/ }).click();
   await dialog.getByRole("button", { name: /Story \/ Reel/ }).click();
-  await dialog.getByTestId("asset-description").fill("Mount Everest at sunrise");
-  await expect(dialog.getByTestId("asset-description")).toHaveValue("Mount Everest at sunrise");
+  await dialog.getByTestId("asset-description").fill(imageConcept);
+  await expect(dialog.getByTestId("asset-description")).toHaveValue(imageConcept);
   await dialog.getByTestId("generate-assets").click();
   const generated = dialog.getByTestId("asset-candidate-1");
   await expect(generated).toBeVisible();
@@ -68,7 +79,7 @@ test("AI creator applies a treatment and destination format to one complete imag
   await page.unroute("**/api/asset-generations");
 
   await dialog.getByTestId("use-generated-asset").click();
-  const savedOption = page.getByLabel("Open saved project").locator("option", { hasText: "Mount Everest at sunrise image" });
+  const savedOption = page.getByLabel("Open saved project").locator("option", { hasText: `${imageConcept} image` });
   await expect(savedOption).toHaveCount(1);
   const savedProjectId = await savedOption.getAttribute("value");
   const savedProject = await page.evaluate(async (projectId) => fetch(`/api/projects/${projectId}`).then((response) => response.json()), savedProjectId);
@@ -109,6 +120,25 @@ async function clickSourcePoint(page: Page, sourceX: number, sourceY: number) {
   });
 }
 
+async function drawSourceSelection(page: Page, left = 3, top = 3, right = 17, bottom = 17) {
+  const editorCanvas = page.getByTestId("editor-canvas");
+  await editorCanvas.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  const bounds = await editorCanvas.boundingBox();
+  if (!bounds) throw new Error("Editor canvas has no visible bounds.");
+  const viewportX = Number(await editorCanvas.getAttribute("data-viewport-x"));
+  const viewportY = Number(await editorCanvas.getAttribute("data-viewport-y"));
+  const viewportScale = Number(await editorCanvas.getAttribute("data-viewport-scale"));
+  const point = (x: number, y: number) => ({ x: bounds.x + viewportX + x * viewportScale, y: bounds.y + viewportY + y * viewportScale });
+  const start = point(left, top);
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  for (const [x, y] of [[right, top], [right, bottom], [left, bottom], [left, top]]) {
+    const next = point(x, y);
+    await page.mouse.move(next.x, next.y, { steps: 4 });
+  }
+  await page.mouse.up();
+}
+
 test("upload, select, and recolor an image", async ({ page }) => {
   const projectName = `Playwright project ${Date.now()}`;
   await page.goto("/");
@@ -121,6 +151,13 @@ test("upload, select, and recolor an image", async ({ page }) => {
   await inspector.evaluate((element) => element.scrollTo({ top: 0 }));
   await uploadTestImage(page);
   await expect(page.getByText("20 × 20px")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Choose an edit" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Draw selection on canvas" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add area" })).toHaveCount(0);
+  const operationTop = (await page.getByText("Edit operation", { exact: true }).boundingBox())?.y;
+  const selectionTop = (await page.getByText("Selection area", { exact: true }).boundingBox())?.y;
+  if (operationTop === undefined || selectionTop === undefined) throw new Error("Lasso inspector sections are not visible.");
+  expect(operationTop).toBeLessThan(selectionTop);
   const canvas = page.getByTestId("editor-canvas");
   await expect(canvas).toBeVisible();
   const bounds = await canvas.boundingBox();
@@ -136,18 +173,23 @@ test("upload, select, and recolor an image", async ({ page }) => {
   await page.mouse.move(bounds.x + initialX + 2, bounds.y + initialY + 17, { steps: 4 });
   await page.mouse.move(bounds.x + initialX + 2, bounds.y + initialY + 2, { steps: 4 });
   await page.mouse.up();
+  await expect(page.getByRole("heading", { name: "Edit selected area" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add area" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Subtract area" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Remove selection" })).toBeVisible();
   await page.getByRole("button", { name: "Remove selection" }).click();
   await expect(page.getByRole("button", { name: "Remove selection" })).toHaveCount(0);
-  await page.getByRole("radio", { name: "Add", exact: true }).click();
-  await expect(page.getByLabel("Size", { exact: true })).toBeVisible();
-  await expect(page.getByLabel("Softness")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Choose an edit" })).toBeVisible();
+  await drawSourceSelection(page);
+  await page.getByRole("button", { name: "Add area" }).click();
+  await expect(page.getByLabel("Refine size", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Edge softness")).toBeVisible();
   await expect(canvas).toHaveClass(/tool-lasso/);
   await page.getByRole("button", { name: "Collapse inspector" }).click();
   await expect(page.getByTestId("editor-inspector")).toHaveCount(0);
   await page.getByRole("button", { name: "Open inspector" }).click();
   await expect(page.getByTestId("editor-inspector")).toBeVisible();
-  await expect(page.getByRole("radio", { name: "Lasso" })).toBeChecked();
+  await expect(page.getByRole("radio", { name: "Lasso edit" })).toBeChecked();
   await canvas.locator("canvas").first().click({ position: { x: initialX + 10, y: initialY + 10 } });
   await page.getByTestId("apply-edit").click();
   await expect(page.getByTestId("preview-comparison")).toBeVisible();
@@ -184,7 +226,7 @@ test("upload, select, and recolor an image", async ({ page }) => {
   await page.getByRole("button", { name: "Reset view" }).click();
   await expect(canvas).toHaveAttribute("data-viewport-scale", "1");
   await page.keyboard.press("l");
-  await expect(page.getByRole("radio", { name: "Lasso" })).toBeChecked();
+  await expect(page.getByRole("radio", { name: "Lasso edit" })).toBeChecked();
 
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export current image" }).click();
@@ -241,7 +283,7 @@ test("brush paint is draft-only until applied and eraser only clears that draft"
   await expect(page.getByTestId("editor-inspector")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Open inspector" })).toHaveCount(0);
   await page.keyboard.press("l");
-  await expect(page.getByRole("radio", { name: "Lasso" })).toBeChecked();
+  await expect(page.getByRole("radio", { name: "Lasso edit" })).toBeChecked();
   await expect(page.getByTestId("editor-inspector")).toBeVisible();
 });
 
@@ -321,7 +363,7 @@ test("text, watermark, and crop stay live on canvas and apply without comparison
   await page.mouse.move(cropBounds.x + cropViewportX + (cropX + cropWidth - 50) * cropScale, cropBounds.y + cropViewportY + (cropY + cropHeight - 50) * cropScale, { steps: 8 });
   await page.mouse.up();
   await expect.poll(async () => Number(await editorCanvas.getAttribute("data-draft-width"))).toBeLessThan(cropWidth);
-  await page.getByRole("radio", { name: "Lasso" }).click();
+  await page.getByRole("radio", { name: "Lasso edit" }).click();
   await expect(page.getByRole("dialog", { name: "Save your crop?" })).toBeVisible();
   await page.getByTestId("save-local-edit").click();
   await expect(page.getByText("150 × 150px", { exact: true })).toBeVisible();
@@ -335,7 +377,7 @@ test("Transform works without a selection for local and generative presets", asy
   await uploadTestImage(page);
 
   const toolRail = page.getByRole("complementary", { name: "Editor tools" });
-  for (const label of ["Lasso", "Brush", "Eraser", "Hand", "AI Transform"]) {
+  for (const label of ["Lasso edit", "Brush", "Eraser", "Hand", "AI Transform"]) {
     await toolRail.getByLabel(label, { exact: true }).hover();
     await expect(toolRail.locator(`[data-tooltip="${label}"]`)).toBeVisible();
   }
@@ -381,8 +423,8 @@ test("Extend plans a target frame before generating and accepts changed dimensio
   await page.goto("/");
   await uploadTestImage(page);
   const toolRail = page.getByRole("complementary", { name: "Editor tools" });
-  await toolRail.getByLabel("Extend", { exact: true }).hover();
-  await expect(toolRail.locator('[data-tooltip="Extend"]')).toBeVisible();
+  await toolRail.getByLabel("AI Extend", { exact: true }).hover();
+  await expect(toolRail.locator('[data-tooltip="AI Extend"]')).toBeVisible();
   await page.getByTestId("open-extend").click();
   const inspector = page.getByTestId("extend-inspector");
   await expect(inspector).toBeVisible();
@@ -425,9 +467,8 @@ test("fake provider supports generative success, retry, and failure states", asy
   await uploadTestImage(page);
   const canvas = page.getByTestId("editor-canvas");
   await expect(canvas).toBeVisible();
-  await page.getByRole("radio", { name: "Add", exact: true }).click();
+  await drawSourceSelection(page);
   await expect(canvas).toHaveClass(/tool-lasso/);
-  await clickSourcePoint(page, 10, 10);
 
   await page.getByRole("radio", { name: "Remove" }).click();
   await page.getByText("Advanced", { exact: true }).click();
