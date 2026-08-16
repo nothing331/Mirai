@@ -44,7 +44,7 @@ The plan assumes approximately 1–2 hours per day. Complete and verify one mile
 | 14. Focused direct canvas tools | Complete | Lasso-owned generation, direct paint drafts, draft-only erasing, and inspector-free hand navigation |
 | 15. Full-image Transform | Complete | Versioned visual presets, local Monochrome, source-content planning, maskless generation, aspect enforcement, semantic fidelity review, persistence, and diagnostics |
 | 16. Smart Extend | Complete | Versioned social formats, cached scene analysis, deterministic Smart Reframe, low-quality outpainting, exact retained-core compositing, dimension-changing history, and frame preview |
-| 17. Direct utility edits | Complete | Main-shell Size & position, Text, and Watermark workflows with live canvas drafts, pointer manipulation, direct Apply/Discard, persistence, and immutable history |
+| 17. Direct utility edits | Complete | Main-shell Size & position, Text, and Watermark workflows with live canvas drafts, pointer manipulation, guarded Save/Discard navigation, persistence, and immutable history |
 
 Update this table whenever a milestone begins or completes.
 
@@ -233,7 +233,7 @@ A user can close the application, reopen a project, continue editing, and export
 
 ## Next development sessions
 
-The v0.1 engineering milestones, focused direct tools, image-first workspace shell, live utility edits, full-candidate review policy, context-aware Replace planner, full-image Transform workflow, and reproducible diagnostic workflow are complete. New editor features should enter through the tool rail, contextual inspector, global command menu, dialog, or supporting drawer instead of adding permanent sidebar sections. Keep one primary responsibility per tool; place submodes such as Add/Subtract or Crop/Resize/Rotate/Flip inside the owning workflow. Generated proposals use comparison; directly manipulated deterministic drafts use Apply/Discard on the ordinary canvas. When an image result looks wrong, pin its request in the diagnostics drawer and use “Copy for coding agent” before changing the pipeline.
+The v0.1 engineering milestones, focused direct tools, image-first workspace shell, live utility edits, full-candidate review policy, context-aware Replace planner, full-image Transform workflow, and reproducible diagnostic workflow are complete. New editor features should enter through the tool rail, contextual inspector, global command menu, dialog, or supporting drawer instead of adding permanent sidebar sections. Keep one primary responsibility per tool; place submodes such as Add/Subtract or Crop/Resize/Rotate/Flip inside the owning workflow. Generated proposals use comparison; leaving a changed directly manipulated draft opens the shared save/discard navigation guard. When an image result looks wrong, pin its request in the diagnostics drawer and use “Copy for coding agent” before changing the pipeline.
 
 ## Plan maintenance
 

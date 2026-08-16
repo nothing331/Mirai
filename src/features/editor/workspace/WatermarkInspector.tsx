@@ -6,7 +6,6 @@ import { cn } from "@/lib/utils";
 import { decodeOverlayImage } from "../image-data";
 import { getCurrentVersion, useEditorStore } from "../store";
 import type { WatermarkParameters } from "../types";
-import { DirectEditFooter } from "./DirectEditFooter";
 import { RangeField } from "./TextInspector";
 
 const anchors: WatermarkParameters["anchor"][] = ["north-west", "north", "north-east", "west", "center", "east", "south-west", "south", "south-east"];
@@ -18,8 +17,6 @@ export function WatermarkInspector() {
   const beginLocalDraft = useEditorStore((state) => state.beginLocalDraft);
   const updateLocalDraft = useEditorStore((state) => state.updateLocalDraft);
   const addOverlayAsset = useEditorStore((state) => state.addOverlayAsset);
-  const applyLocalDraft = useEditorStore((state) => state.applyLocalDraft);
-  const discardLocalDraft = useEditorStore((state) => state.discardLocalDraft);
   const setError = useEditorStore((state) => state.setError);
 
   if (!version) return null;
@@ -59,7 +56,6 @@ export function WatermarkInspector() {
     update({ anchor, width, x: parameters.margin + (currentVersion.width - parameters.margin * 2 - width) * column, y: parameters.margin + (currentVersion.height - parameters.margin * 2 - height) * row });
   }
 
-  const applyDisabled = parameters.source === "text" ? parameters.content.trim().length === 0 : !asset;
   return (
     <div className="inspector-enter flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4">
@@ -81,9 +77,9 @@ export function WatermarkInspector() {
           <RangeField label="Rotation" value={parameters.rotation} min={-180} max={180} step={1} display={`${Math.round(parameters.rotation)}°`} onChange={(rotation) => update({ rotation })} />
           <NumberField label="Margin" value={parameters.margin} min={0} onChange={(margin) => update({ margin })} />
           <p className="border-l-2 border-acid bg-[#edf5c4] p-3 text-[10px] leading-relaxed text-ink">Presets place the mark quickly. Drag it anywhere on the image to switch to free positioning.</p>
+          <p className="font-mono text-[8px] uppercase leading-relaxed tracking-[.1em] text-muted">Switch tools when finished. You’ll be asked whether to save the watermark.</p>
         </section>
       </div>
-      <DirectEditFooter applyLabel="Apply watermark" disabled={applyDisabled} onApply={applyLocalDraft} onDiscard={discardLocalDraft} />
     </div>
   );
 }

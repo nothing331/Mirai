@@ -73,7 +73,7 @@ export function EditorCanvas({ version, mask, color, viewResetKey }: { version: 
   const [size, setSize] = useState({ width: 800, height: 600 });
   const image = useHtmlImage(version.dataUrl);
   const maskCanvas = useMemo(() => makeMaskCanvas(mask, color), [mask, color]);
-  const { viewport, tool, selectionMode, selectionId, lassoVisualization, paintSession, brushSize, localDraft, overlayAssets, setViewport, fillSelection, refineSelection, applyPaintStroke, updateLocalDraft, discardLocalDraft } = useEditorStore();
+  const { viewport, tool, selectionMode, selectionId, lassoVisualization, paintSession, brushSize, localDraft, overlayAssets, setViewport, fillSelection, refineSelection, applyPaintStroke, updateLocalDraft } = useEditorStore();
   const paintCanvas = useMemo(() => makePaintCanvas(paintSession?.overlay ?? null), [paintSession?.overlay]);
   const overlayAsset = localDraft?.type === "watermark" ? overlayAssets.find((asset) => asset.id === localDraft.parameters.overlayAssetId) ?? null : null;
   const watermarkImage = useHtmlImage(overlayAsset?.dataUrl ?? null);
@@ -104,11 +104,6 @@ export function EditorCanvas({ version, mask, color, viewResetKey }: { version: 
     function handleKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
       if (target?.matches("input, textarea, select, [contenteditable='true']")) return;
-      if (event.key === "Escape" || event.key === "Delete" || event.key === "Backspace") {
-        event.preventDefault();
-        discardLocalDraft();
-        return;
-      }
       if (!event.key.startsWith("Arrow")) return;
       const distance = event.shiftKey ? 10 : 1;
       const dx = event.key === "ArrowLeft" ? -distance : event.key === "ArrowRight" ? distance : 0;
@@ -125,7 +120,7 @@ export function EditorCanvas({ version, mask, color, viewResetKey }: { version: 
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [discardLocalDraft, localDraft, updateLocalDraft, version.height, version.width]);
+  }, [localDraft, updateLocalDraft, version.height, version.width]);
 
   /** Converts the live pointer into a clipped source-image point. */
   function sourcePoint(stage: Konva.Stage): SourcePoint | null {
@@ -230,8 +225,10 @@ export function EditorCanvas({ version, mask, color, viewResetKey }: { version: 
       className={`absolute inset-0 tool-${localDraft?.type ?? tool}`}
       data-testid="editor-canvas"
       data-local-draft={localDraft?.type ?? "none"}
-      data-draft-x={localDraft?.type === "text" || localDraft?.type === "watermark" ? localDraft.parameters.x : undefined}
-      data-draft-y={localDraft?.type === "text" || localDraft?.type === "watermark" ? localDraft.parameters.y : undefined}
+      data-draft-x={localDraft?.type === "crop" ? localDraft.parameters.sourceRect.x : localDraft?.type === "text" || localDraft?.type === "watermark" ? localDraft.parameters.x : undefined}
+      data-draft-y={localDraft?.type === "crop" ? localDraft.parameters.sourceRect.y : localDraft?.type === "text" || localDraft?.type === "watermark" ? localDraft.parameters.y : undefined}
+      data-draft-width={localDraft?.type === "crop" ? localDraft.parameters.sourceRect.width : localDraft?.type === "text" || localDraft?.type === "watermark" ? localDraft.parameters.width : undefined}
+      data-draft-height={localDraft?.type === "crop" ? localDraft.parameters.sourceRect.height : localDraft?.type === "text" ? estimateTextHeight(localDraft.parameters.content, localDraft.parameters.width, localDraft.parameters.fontSize, localDraft.parameters.padding) : undefined}
       data-draft-anchor={localDraft?.type === "watermark" ? localDraft.parameters.anchor : undefined}
       data-viewport-x={viewport.x}
       data-viewport-y={viewport.y}
@@ -283,6 +280,7 @@ function CropDraftOverlay({ draft, imageWidth, imageHeight, nodeRef, transformer
       {...rect}
       stroke="#d8f441"
       strokeWidth={Math.max(1, 2 / viewportScale)}
+      hitStrokeWidth={Math.max(14, 18 / viewportScale)}
       draggable
       dragBoundFunc={(position) => ({ x: Math.max(0, Math.min(imageWidth - rect.width, position.x)), y: Math.max(0, Math.min(imageHeight - rect.height, position.y)) })}
       onMouseEnter={(event) => setStageCursor(event.target, "move")}
@@ -299,9 +297,9 @@ function CropDraftOverlay({ draft, imageWidth, imageHeight, nodeRef, transformer
       borderEnabled={false}
       anchorFill="#d8f441"
       anchorStroke="#171714"
-      anchorSize={Math.max(8, 10 / viewportScale)}
+      anchorSize={Math.max(12, 14 / viewportScale)}
       flipEnabled={false}
-      boundBoxFunc={(oldBox, nextBox) => nextBox.width < 8 || nextBox.height < 8 || nextBox.x < 0 || nextBox.y < 0 || nextBox.x + nextBox.width > imageWidth || nextBox.y + nextBox.height > imageHeight ? oldBox : nextBox}
+      boundBoxFunc={(oldBox, nextBox) => Math.abs(nextBox.width) < 16 || Math.abs(nextBox.height) < 16 ? oldBox : nextBox}
     />
   </>;
 }
@@ -324,6 +322,7 @@ function TextDraftOverlay({ draft, imageWidth, imageHeight, nodeRef, transformer
       rotation={parameters.rotation}
       opacity={parameters.opacity}
       draggable
+      dragDistance={0}
       dragBoundFunc={(position) => ({ x: Math.max(-parameters.width * 0.8, Math.min(imageWidth - parameters.width * 0.2, position.x)), y: Math.max(-estimatedHeight * 0.8, Math.min(imageHeight - estimatedHeight * 0.2, position.y)) })}
       onMouseEnter={(event) => setStageCursor(event.target, "grab")}
       onMouseDown={(event) => setStageCursor(event.target, "grabbing")}
@@ -332,6 +331,7 @@ function TextDraftOverlay({ draft, imageWidth, imageHeight, nodeRef, transformer
       onDragEnd={(event) => commit(event.target as Konva.Group)}
       onTransformEnd={(event) => commit(event.target as Konva.Group)}
     >
+      <Rect width={parameters.width} height={estimatedHeight} fill="rgba(0,0,0,0.001)" />
       {parameters.backgroundColor ? <Rect width={parameters.width} height={estimatedHeight} fill={parameters.backgroundColor} listening={false} /> : null}
       <Text
         text={parameters.content}

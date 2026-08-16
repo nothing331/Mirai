@@ -7,7 +7,7 @@ import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 import type { EditBoundaryPolicy } from "@/shared/edit-boundary";
 import { useEditorStore } from "../store";
-import type { EditType, FakeScenario, SelectionMode, TransformInput } from "../types";
+import type { EditType, FakeScenario, GeometryEditType, SelectionMode, TransformInput } from "../types";
 import { TransformInspector } from "./TransformInspector";
 import { ExtendInspector } from "./ExtendInspector";
 import { SizePositionInspector } from "./SizePositionInspector";
@@ -28,6 +28,7 @@ export function EditorInspector({
   providerCapabilities,
   realRequestsUsed,
   workflow,
+  onSelectGeometryEdit,
   onGenerate,
   onGenerateTransform,
   onPlanExtend,
@@ -39,6 +40,7 @@ export function EditorInspector({
   providerCapabilities: ProviderCapabilities | null;
   realRequestsUsed: number;
   workflow: WorkspaceWorkflow;
+  onSelectGeometryEdit: (editType: GeometryEditType) => void;
   onGenerate: () => void;
   onGenerateTransform: (input: TransformInput) => Promise<boolean>;
   onPlanExtend: (input: import("../types").ExtendInput) => Promise<boolean>;
@@ -84,7 +86,7 @@ export function EditorInspector({
     );
   }
 
-  if (workflow.kind === "size-position") return <SizePositionInspector />;
+  if (workflow.kind === "size-position") return <SizePositionInspector onSelectEdit={onSelectGeometryEdit} />;
   if (workflow.kind === "text") return <TextInspector />;
   if (workflow.kind === "watermark") return <WatermarkInspector />;
   if (workflow.kind === "transform") {

@@ -13,9 +13,14 @@ import { CanvasFrame } from "./workspace/CanvasFrame";
 import { EditorInspector } from "./workspace/EditorInspector";
 import { ToolRail } from "./workspace/ToolRail";
 import { WorkspaceHeader } from "./workspace/WorkspaceHeader";
+import { PendingLocalEditDialog } from "./workspace/PendingLocalEditDialog";
 import { deriveWorkspacePhase } from "./workspace/workspace-phase";
 import type { BusyAction, ExportFormat, ProviderCapabilities, WorkspaceWorkflow } from "./workspace/workspace-types";
-import type { Tool, TransformInput } from "./types";
+import type { GeometryEditType, LocalEditDraft, Tool, TransformInput } from "./types";
+
+type PendingTransition =
+  | { kind: "workflow"; workflow: WorkspaceWorkflow }
+  | { kind: "geometry"; editType: GeometryEditType };
 
 /** Coordinates project I/O and provider authorization around the editor's domain-owned state. */
 export function EditorWorkspace() {
@@ -23,6 +28,7 @@ export function EditorWorkspace() {
     currentVersionId: state.currentVersionId,
     preview: state.preview,
     localDraft: state.localDraft,
+    localDraftDirty: state.localDraftDirty,
     paintSession: state.paintSession,
     generativeState: state.generativeState,
     selectionMask: state.selectionMask,
@@ -35,6 +41,8 @@ export function EditorWorkspace() {
     setTool: state.setTool,
     setError: state.setError,
     beginLocalDraft: state.beginLocalDraft,
+    applyLocalDraft: state.applyLocalDraft,
+    discardLocalDraft: state.discardLocalDraft,
     createPreview: state.createPreview,
     requestGenerativePreview: state.requestGenerativePreview,
     requestTransformPreview: state.requestTransformPreview,
@@ -53,14 +61,16 @@ export function EditorWorkspace() {
   const [exportFormat, setExportFormat] = useState<ExportFormat>("image/png");
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [workflow, setWorkflow] = useState<WorkspaceWorkflow>(() => ({ kind: "canvas", tool: useEditorStore.getState().tool }));
+  const [pendingTransition, setPendingTransition] = useState<PendingTransition | null>(null);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(() => !useEditorStore.getState().currentVersionId);
   const phase = deriveWorkspacePhase({ hasImage: Boolean(editor.currentVersionId), preview: editor.preview, generativeState: editor.generativeState, selectionMask: editor.selectionMask });
 
-  const selectWorkflow = useCallback((next: WorkspaceWorkflow) => {
-    if (editor.localDraft && workflow.kind !== next.kind) {
-      editor.setError(`Apply or discard the current ${editor.localDraft.type} edit before switching tools.`);
+  const performTransition = useCallback((transition: PendingTransition) => {
+    if (transition.kind === "geometry") {
+      useEditorStore.getState().beginLocalDraft(transition.editType);
       return;
     }
+    const next = transition.workflow;
     if (editor.paintSession && (next.kind !== "canvas" || (next.tool !== "brush" && next.tool !== "eraser"))) {
       editor.setError("Apply or discard the pending paint before switching workflows.");
       return;
@@ -70,12 +80,34 @@ export function EditorWorkspace() {
       setInspectorCollapsed(next.tool === "pan");
     } else {
       setInspectorCollapsed(false);
-      if (!editor.localDraft && next.kind === "size-position") editor.beginLocalDraft("crop");
-      if (!editor.localDraft && next.kind === "text") editor.beginLocalDraft("text");
-      if (!editor.localDraft && next.kind === "watermark") editor.beginLocalDraft("watermark");
+      const currentDraft = useEditorStore.getState().localDraft;
+      if (!currentDraft && next.kind === "size-position") editor.beginLocalDraft("crop");
+      if (!currentDraft && next.kind === "text") editor.beginLocalDraft("text");
+      if (!currentDraft && next.kind === "watermark") editor.beginLocalDraft("watermark");
     }
     setWorkflow(next);
-  }, [editor, workflow.kind]);
+  }, [editor]);
+
+  const requestTransition = useCallback((transition: PendingTransition) => {
+    const state = useEditorStore.getState();
+    const draft = state.localDraft;
+    const changingDraft = draft && (transition.kind === "geometry"
+      ? draft.type !== transition.editType
+      : workflow.kind !== transition.workflow.kind);
+    if (!draft || !changingDraft) {
+      performTransition(transition);
+      return;
+    }
+    if (state.localDraftDirty && localDraftChangesOutput(draft, state.versions.find((version) => version.id === draft.inputVersionId))) {
+      setPendingTransition(transition);
+      return;
+    }
+    state.discardLocalDraft();
+    performTransition(transition);
+  }, [performTransition, workflow.kind]);
+
+  const selectWorkflow = useCallback((next: WorkspaceWorkflow) => requestTransition({ kind: "workflow", workflow: next }), [requestTransition]);
+  const selectGeometryEdit = useCallback((editType: GeometryEditType) => requestTransition({ kind: "geometry", editType }), [requestTransition]);
 
   const selectTool = useCallback((tool: Tool) => selectWorkflow({ kind: "canvas", tool }), [selectWorkflow]);
   const selectTransform = useCallback(() => selectWorkflow({ kind: "transform" }), [selectWorkflow]);
@@ -275,6 +307,7 @@ export function EditorWorkspace() {
                   providerCapabilities={providerCapabilities}
                   realRequestsUsed={realRequestsUsed}
                   workflow={workflow}
+                  onSelectGeometryEdit={selectGeometryEdit}
                   onGenerate={() => void handleGeneratePreview()}
                   onGenerateTransform={handleTransformPreview}
                   onPlanExtend={editor.planExtend}
@@ -289,6 +322,41 @@ export function EditorWorkspace() {
         </section>
       </main>
       <DiagnosticsDrawer projectId={editor.projectId} focusRequestId={editor.lastRequestId} open={diagnosticsOpen} onClose={() => setDiagnosticsOpen(false)} />
+      {pendingTransition && editor.localDraft ? (
+        <PendingLocalEditDialog
+          editName={editor.localDraft.type}
+          saveDisabled={!canSaveLocalDraft(editor.localDraft)}
+          onSave={() => {
+            if (!editor.applyLocalDraft()) return;
+            const transition = pendingTransition;
+            setPendingTransition(null);
+            performTransition(transition);
+          }}
+          onDiscard={() => {
+            editor.discardLocalDraft();
+            const transition = pendingTransition;
+            setPendingTransition(null);
+            performTransition(transition);
+          }}
+          onStay={() => setPendingTransition(null)}
+        />
+      ) : null}
     </>
   );
+}
+
+function canSaveLocalDraft(draft: LocalEditDraft) {
+  if (draft.type === "text") return draft.parameters.content.trim().length > 0;
+  if (draft.type === "watermark") return draft.parameters.source === "text" ? draft.parameters.content.trim().length > 0 : Boolean(draft.parameters.overlayAssetId);
+  return true;
+}
+
+function localDraftChangesOutput(draft: LocalEditDraft, input: { width: number; height: number } | undefined) {
+  if (!input) return false;
+  if (draft.type === "crop") {
+    const rect = draft.parameters.sourceRect;
+    return rect.x !== 0 || rect.y !== 0 || rect.width !== input.width || rect.height !== input.height;
+  }
+  if (draft.type === "resize") return draft.parameters.width !== input.width || draft.parameters.height !== input.height;
+  return true;
 }

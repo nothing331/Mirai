@@ -28,6 +28,7 @@ interface EditorState {
   overlayAssets: OverlayImageAsset[];
   preview: EditPreview | null;
   localDraft: LocalEditDraft | null;
+  localDraftDirty: boolean;
   editType: EditType;
   prompt: string;
   fakeScenario: FakeScenario;
@@ -161,6 +162,7 @@ function appendAcceptedEdit(
     currentVersionId: output.id,
     preview: null,
     localDraft: null,
+    localDraftDirty: false,
     selectionMask: preserveSelection ? state.selectionMask : createMask(output.width, output.height),
     selectionId: preserveSelection ? state.selectionId : crypto.randomUUID(),
     selectionDiagnostics: preserveSelection ? state.selectionDiagnostics : null,
@@ -185,6 +187,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   overlayAssets: [],
   preview: null,
   localDraft: null,
+  localDraftDirty: false,
   generativeState: idleGenerativeState,
   extendState: idleExtendState,
   extendAnalysisCache: {},
@@ -205,6 +208,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     overlayAssets: [],
     preview: null,
     localDraft: null,
+    localDraftDirty: false,
     generativeState: idleGenerativeState,
     extendState: idleExtendState,
     extendAnalysisCache: {},
@@ -231,6 +235,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       overlayAssets: project.overlayAssets ?? [],
       preview: null,
       localDraft: null,
+      localDraftDirty: false,
       generativeState: idleGenerativeState,
       extendState: idleExtendState,
       extendAnalysisCache: {},
@@ -370,17 +375,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     else if (type === "flip") localDraft = { id, inputVersionId: input.id, type, parameters: { axis: "horizontal" } };
     else if (type === "text") localDraft = { id, inputVersionId: input.id, type, parameters: { content: "Your text", x: input.width * 0.15, y: input.height * 0.42, width: input.width * 0.7, fontFamily: "Manrope", fontSize: Math.max(18, Math.round(input.width * 0.07)), fontWeight: 700, color: "#ffffff", opacity: 1, rotation: 0, align: "center", backgroundColor: null, padding: Math.max(4, Math.round(input.width * 0.01)) } };
     else localDraft = { id, inputVersionId: input.id, type, parameters: { source: "text", content: "© Mirai", overlayAssetId: null, x: input.width * 0.68, y: input.height * 0.86, width: input.width * 0.26, fontFamily: "Manrope", fontSize: Math.max(12, Math.round(input.width * 0.028)), color: "#ffffff", opacity: 0.55, rotation: 0, anchor: "south-east", margin: Math.max(8, Math.round(input.width * 0.02)) } };
-    set({ localDraft, preview: null, generativeState: idleGenerativeState, extendState: idleExtendState, error: null });
+    set({ localDraft, localDraftDirty: type === "rotate" || type === "flip", preview: null, generativeState: idleGenerativeState, extendState: idleExtendState, error: null });
   },
-  updateLocalDraft: (localDraft) => set((state) => state.currentVersionId === localDraft.inputVersionId ? { localDraft, error: null } : {}),
-  discardLocalDraft: () => set({ localDraft: null, error: null }),
+  updateLocalDraft: (localDraft) => set((state) => state.currentVersionId === localDraft.inputVersionId ? { localDraft, localDraftDirty: true, error: null } : {}),
+  discardLocalDraft: () => set({ localDraft: null, localDraftDirty: false, error: null }),
   addOverlayAsset: (asset) => set((state) => ({ overlayAssets: [...state.overlayAssets.filter((item) => item.id !== asset.id), asset] })),
   applyLocalDraft: () => {
     const state = get();
     const draft = state.localDraft;
     const input = state.versions.find((version) => version.id === draft?.inputVersionId);
     if (!draft || !input || state.currentVersionId !== draft.inputVersionId) {
-      set({ localDraft: null, error: "The local edit is no longer based on the current image." });
+      set({ localDraft: null, localDraftDirty: false, error: "The local edit is no longer based on the current image." });
       return false;
     }
     try {
@@ -659,7 +664,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const currentIndex = state.versions.findIndex((version) => version.id === state.currentVersionId);
     if (currentIndex <= 0) return false;
     const target = state.versions[currentIndex - 1];
-    set((current) => ({ currentVersionId: target.id, preview: null, localDraft: null, paintSession: null, generativeState: idleGenerativeState, extendState: idleExtendState, selectionMask: createMask(target.width, target.height), selectionId: crypto.randomUUID(), selectionDiagnostics: null, lassoVisualization: null, viewResetKey: current.viewResetKey + 1, error: null }));
+    set((current) => ({ currentVersionId: target.id, preview: null, localDraft: null, localDraftDirty: false, paintSession: null, generativeState: idleGenerativeState, extendState: idleExtendState, selectionMask: createMask(target.width, target.height), selectionId: crypto.randomUUID(), selectionDiagnostics: null, lassoVisualization: null, viewResetKey: current.viewResetKey + 1, error: null }));
     return true;
   },
   redo: () => {
@@ -667,13 +672,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const currentIndex = state.versions.findIndex((version) => version.id === state.currentVersionId);
     if (currentIndex < 0 || currentIndex >= state.versions.length - 1) return false;
     const target = state.versions[currentIndex + 1];
-    set((current) => ({ currentVersionId: target.id, preview: null, localDraft: null, paintSession: null, generativeState: idleGenerativeState, extendState: idleExtendState, selectionMask: createMask(target.width, target.height), selectionId: crypto.randomUUID(), selectionDiagnostics: null, lassoVisualization: null, viewResetKey: current.viewResetKey + 1, error: null }));
+    set((current) => ({ currentVersionId: target.id, preview: null, localDraft: null, localDraftDirty: false, paintSession: null, generativeState: idleGenerativeState, extendState: idleExtendState, selectionMask: createMask(target.width, target.height), selectionId: crypto.randomUUID(), selectionDiagnostics: null, lassoVisualization: null, viewResetKey: current.viewResetKey + 1, error: null }));
     return true;
   },
   reset: () => set((state) => {
     const original = state.versions.find((version) => version.id === state.originalVersionId);
     return original ? {
-      currentVersionId: original.id, versions: [original], operations: [], maskAssets: [], overlayAssets: [], preview: null, localDraft: null, paintSession: null, generativeState: idleGenerativeState,
+      currentVersionId: original.id, versions: [original], operations: [], maskAssets: [], overlayAssets: [], preview: null, localDraft: null, localDraftDirty: false, paintSession: null, generativeState: idleGenerativeState,
       selectionMask: createMask(original.width, original.height), selectionId: crypto.randomUUID(), extendState: idleExtendState,
       extendAnalysisCache: {},
       selectionDiagnostics: null, lassoVisualization: null,

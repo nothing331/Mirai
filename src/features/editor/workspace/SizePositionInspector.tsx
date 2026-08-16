@@ -4,7 +4,6 @@ import { Crop, FlipHorizontal2, FlipVertical2, RotateCcw, RotateCw, Scaling } fr
 import { cn } from "@/lib/utils";
 import { getCurrentVersion, useEditorStore } from "../store";
 import type { CropRatio, GeometryEditType, ImageVersion, LocalEditDraft } from "../types";
-import { DirectEditFooter } from "./DirectEditFooter";
 
 const geometryTools: Array<{ value: GeometryEditType; label: string; icon: typeof Crop }> = [
   { value: "crop", label: "Crop", icon: Crop },
@@ -15,18 +14,14 @@ const geometryTools: Array<{ value: GeometryEditType; label: string; icon: typeo
 
 const cropRatios: CropRatio[] = ["free", "original", "1:1", "4:5", "3:2", "16:9", "9:16"];
 
-export function SizePositionInspector() {
+export function SizePositionInspector({ onSelectEdit }: { onSelectEdit: (editType: GeometryEditType) => void }) {
   const version = useEditorStore(getCurrentVersion);
   const draft = useEditorStore((state) => state.localDraft);
-  const beginLocalDraft = useEditorStore((state) => state.beginLocalDraft);
   const updateLocalDraft = useEditorStore((state) => state.updateLocalDraft);
-  const applyLocalDraft = useEditorStore((state) => state.applyLocalDraft);
-  const discardLocalDraft = useEditorStore((state) => state.discardLocalDraft);
   if (!version) return null;
 
   const geometryDraft = draft && ["crop", "resize", "rotate", "flip"].includes(draft.type) ? draft : null;
   const activeType = geometryDraft?.type ?? "crop";
-  const applyDisabled = !geometryDraft || isGeometryNoop(geometryDraft, version);
 
   return (
     <div className="inspector-enter flex h-full min-h-0 flex-col">
@@ -40,7 +35,7 @@ export function SizePositionInspector() {
           <span className="font-mono text-[8px] uppercase tracking-[.12em] text-muted">Operation</span>
           <div className="grid grid-cols-4 bg-[#e8e5dc] p-0.5" role="radiogroup" aria-label="Size and position operation">
             {geometryTools.map(({ value, label, icon: Icon }) => (
-              <button key={value} type="button" role="radio" aria-checked={activeType === value} aria-label={label} className={cn("grid h-12 place-items-center gap-1 font-mono text-[7px] uppercase text-muted outline-none hover:bg-white/70 hover:text-ink focus-visible:ring-2 focus-visible:ring-accent", activeType === value && "bg-ink text-paper hover:bg-ink hover:text-acid")} onClick={() => beginLocalDraft(value)}>
+              <button key={value} type="button" role="radio" aria-checked={activeType === value} aria-label={label} className={cn("grid h-12 place-items-center gap-1 font-mono text-[7px] uppercase text-muted outline-none hover:bg-white/70 hover:text-ink focus-visible:ring-2 focus-visible:ring-accent", activeType === value && "bg-ink text-paper hover:bg-ink hover:text-acid")} onClick={() => onSelectEdit(value)}>
                 <Icon className="size-3.5" />{label}
               </button>
             ))}
@@ -51,8 +46,8 @@ export function SizePositionInspector() {
         {geometryDraft?.type === "resize" ? <ResizeControls version={version} draft={geometryDraft} onChange={updateLocalDraft} /> : null}
         {geometryDraft?.type === "rotate" ? <RotateControls draft={geometryDraft} onChange={updateLocalDraft} /> : null}
         {geometryDraft?.type === "flip" ? <FlipControls draft={geometryDraft} onChange={updateLocalDraft} /> : null}
+        <p className="border-t border-line pt-3 font-mono text-[8px] uppercase leading-relaxed tracking-[.1em] text-muted">Changes stay live on canvas. Switching tools asks whether to save them.</p>
       </div>
-      <DirectEditFooter applyLabel={`Apply ${activeType}`} disabled={applyDisabled} onApply={applyLocalDraft} onDiscard={discardLocalDraft} />
     </div>
   );
 }
@@ -140,10 +135,4 @@ function clampCrop(rect: { x: number; y: number; width: number; height: number }
   const x = Math.max(0, Math.min(version.width - 1, Math.round(rect.x)));
   const y = Math.max(0, Math.min(version.height - 1, Math.round(rect.y)));
   return { x, y, width: Math.max(1, Math.min(version.width - x, Math.round(rect.width))), height: Math.max(1, Math.min(version.height - y, Math.round(rect.height))) };
-}
-
-function isGeometryNoop(draft: LocalEditDraft, version: ImageVersion) {
-  if (draft.type === "crop") return draft.parameters.sourceRect.x === 0 && draft.parameters.sourceRect.y === 0 && draft.parameters.sourceRect.width === version.width && draft.parameters.sourceRect.height === version.height;
-  if (draft.type === "resize") return draft.parameters.width === version.width && draft.parameters.height === version.height;
-  return false;
 }

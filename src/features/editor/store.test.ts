@@ -472,8 +472,10 @@ describe("filled selection preview and acceptance", () => {
   it("cancels a local draft without advancing history", () => {
     useEditorStore.getState().beginLocalDraft("resize");
     expect(useEditorStore.getState().localDraft?.type).toBe("resize");
+    expect(useEditorStore.getState().localDraftDirty).toBe(false);
     useEditorStore.getState().discardLocalDraft();
     expect(useEditorStore.getState().localDraft).toBeNull();
+    expect(useEditorStore.getState().localDraftDirty).toBe(false);
     expect(useEditorStore.getState().versions).toHaveLength(1);
     expect(useEditorStore.getState().operations).toHaveLength(0);
   });
@@ -485,6 +487,7 @@ describe("filled selection preview and acceptance", () => {
     useEditorStore.getState().updateLocalDraft({ ...draft, parameters: { ...draft.parameters, content: "Visible immediately" } });
     const state = useEditorStore.getState();
     expect(state.localDraft?.type).toBe("text");
+    expect(state.localDraftDirty).toBe(true);
     expect(state.localDraft?.parameters).toMatchObject({ content: "Visible immediately" });
     expect(state.preview).toBeNull();
     expect(state.versions).toHaveLength(1);

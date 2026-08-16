@@ -4,14 +4,11 @@ import { Type } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { useEditorStore } from "../store";
 import type { TextOverlayParameters } from "../types";
-import { DirectEditFooter } from "./DirectEditFooter";
 
 export function TextInspector() {
   const draft = useEditorStore((state) => state.localDraft?.type === "text" ? state.localDraft : null);
   const beginLocalDraft = useEditorStore((state) => state.beginLocalDraft);
   const updateLocalDraft = useEditorStore((state) => state.updateLocalDraft);
-  const applyLocalDraft = useEditorStore((state) => state.applyLocalDraft);
-  const discardLocalDraft = useEditorStore((state) => state.discardLocalDraft);
 
   if (!draft) {
     return <EmptyDirectInspector eyebrow="Direct edit" title="Text" description="Add editable text directly over the image." action="Add text" onStart={() => beginLocalDraft("text")} />;
@@ -48,9 +45,9 @@ export function TextInspector() {
           <label className="flex min-h-10 items-center gap-2 bg-[#e8e5dc] px-3 text-[10px] text-ink"><input type="checkbox" checked={parameters.backgroundColor !== null} onChange={(event) => update({ backgroundColor: event.target.checked ? "#171714" : null })} />Background</label>
           {parameters.backgroundColor ? <ColorField label="Background color" value={parameters.backgroundColor} onChange={(backgroundColor) => update({ backgroundColor })} /> : null}
           <p className="border-l-2 border-acid bg-[#edf5c4] p-3 text-[10px] leading-relaxed text-ink">Typing updates the canvas immediately. Drag the text, use the handles to resize or rotate, and use arrow keys for precise movement.</p>
+          <p className="font-mono text-[8px] uppercase leading-relaxed tracking-[.1em] text-muted">Switch tools when finished. You’ll be asked whether to save the text.</p>
         </section>
       </div>
-      <DirectEditFooter applyLabel="Apply text" disabled={parameters.content.trim().length === 0} onApply={applyLocalDraft} onDiscard={discardLocalDraft} />
     </div>
   );
 }
