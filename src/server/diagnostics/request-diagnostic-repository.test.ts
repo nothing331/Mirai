@@ -73,11 +73,13 @@ describe("request diagnostic repository", () => {
       artifacts: {},
     });
     expect(manifest).toMatchObject({
-      schemaVersion: 3,
+      schemaVersion: 4,
       boundaryPolicy: "protected",
       previewSource: null,
       plannerInstruction: null,
       editPlan: null,
+      transformPlan: null,
+      transformFidelityAssessment: null,
       candidateAnalysis: null,
       providerCalls: [],
     });

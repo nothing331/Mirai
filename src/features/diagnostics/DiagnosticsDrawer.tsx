@@ -18,13 +18,13 @@ const filters: Array<{ label: string; value: "all" | RequestDiagnosticStatus }> 
 const visualArtifacts: Array<{ name: DiagnosticArtifactName; label: string; note: string }> = [
   { name: "source-input.png", label: "01 / Source", note: "Exact image version entering the request" },
   { name: "selection-mask.png", label: "02 / Selection", note: "Mask drawn by the user" },
-  { name: "effective-mask.png", label: "03 / Provider focus", note: "Mask sent as approximate focus; strict only in protected mode" },
+  { name: "effective-mask.png", label: "03 / Effective mask", note: "Application-owned edit coverage; Transform does not send it to the provider" },
   { name: "planner-context.png", label: "04 / Planner context", note: "Full scene with the selected region highlighted" },
   { name: "planner-selection-detail.png", label: "05 / Planner detail", note: "Close-up used to infer the selected surface" },
   { name: "provider-input.png", label: "06 / Provider input", note: "Resized image sent to the image editor" },
   { name: "provider-mask.png", label: "07 / Provider mask", note: "Provider-format transparency mask" },
   { name: "provider-candidate-raw.png", label: "08 / Raw candidate", note: "Unmodified image-editor response" },
-  { name: "candidate-normalized.png", label: "09 / Normalized", note: "Candidate restored to source dimensions" },
+  { name: "candidate-normalized.png", label: "09 / Normalized", note: "Provider candidate normalized to the requested editor dimensions" },
   { name: "change-map.png", label: "10 / Change map", note: "Material candidate differences measured without altering the result" },
   { name: "final-preview.png", label: "11 / Final preview", note: "Complete candidate or protected composite according to the recorded policy" },
   { name: "asset-candidate-1-raw.png", label: "A1 / Provider result", note: "Complete image returned by the creation provider" },
@@ -271,6 +271,19 @@ export function DiagnosticsDrawer({ projectId, focusRequestId, open, onClose }: 
                   </section>
                 )}
 
+                {manifest.transformFidelityAssessment && (
+                  <section>
+                    <SectionHeading index="B3" title="Transform fidelity" subtitle="Semantic source-versus-candidate validation; the complete provider proposal remains unchanged." />
+                    <dl className="mt-3 grid grid-cols-2 border border-ink md:grid-cols-4">
+                      <Fact label="Verdict" value={manifest.transformFidelityAssessment.verdict} />
+                      <Fact label="Confidence" value={manifest.transformFidelityAssessment.confidence} />
+                      <Fact label="Subject preservation" value={`${Math.round(manifest.transformFidelityAssessment.subjectPreservation * 100)}%`} />
+                      <Fact label="Composition preservation" value={`${Math.round(manifest.transformFidelityAssessment.compositionPreservation * 100)}%`} />
+                    </dl>
+                    <p className={cn("mt-3 border-l-4 p-3 text-xs", manifest.transformFidelityAssessment.verdict === "block" ? "border-accent bg-[#fff0eb] text-[#8f1d10]" : manifest.transformFidelityAssessment.verdict === "warning" ? "border-[#d98b00] bg-[#fff0c7] text-[#6f4300]" : "border-[#586700] bg-[#edf5c4] text-[#394300]")}>{manifest.transformFidelityAssessment.explanation}</p>
+                  </section>
+                )}
+
                 <section>
                   <SectionHeading index="C" title="Processing timeline" subtitle={`${manifest.durationMs ?? "Live"}${typeof manifest.durationMs === "number" ? "ms total" : ""}`} />
                   <ol className="mt-3 border border-ink">
@@ -291,6 +304,7 @@ export function DiagnosticsDrawer({ projectId, focusRequestId, open, onClose }: 
                       <EvidenceText label="User prompt" value={manifest.userPrompt || "(empty removal context)"} />
                       {manifest.plannerInstruction && <EvidenceText label="Planner instruction" value={manifest.plannerInstruction} />}
                       {manifest.editPlan && <EvidenceText label="Structured edit plan" value={JSON.stringify(manifest.editPlan, null, 2)} />}
+                      {manifest.transformPlan && <EvidenceText label="Transform source plan" value={JSON.stringify(manifest.transformPlan, null, 2)} />}
                       <EvidenceText label="Image-editor instruction" value={manifest.providerInstruction ?? "Not constructed before failure."} />
                     </dl>
                   </div>
@@ -306,6 +320,11 @@ export function DiagnosticsDrawer({ projectId, focusRequestId, open, onClose }: 
                     <div className="mt-3 flex flex-wrap gap-3">
                       {manifest.artifacts["planner-response.json"] && <a className="inline-flex border-b border-ink font-mono text-[10px] uppercase tracking-wider hover:bg-acid" href={diagnosticArtifactUrl(manifest.requestId, "planner-response.json")} target="_blank" rel="noreferrer">Open planner response ↗</a>}
                       {manifest.artifacts["edit-plan.json"] && <a className="inline-flex border-b border-ink font-mono text-[10px] uppercase tracking-wider hover:bg-acid" href={diagnosticArtifactUrl(manifest.requestId, "edit-plan.json")} target="_blank" rel="noreferrer">Open edit plan ↗</a>}
+                      {manifest.artifacts["transform-plan.json"] && <a className="inline-flex border-b border-ink font-mono text-[10px] uppercase tracking-wider hover:bg-acid" href={diagnosticArtifactUrl(manifest.requestId, "transform-plan.json")} target="_blank" rel="noreferrer">Open Transform plan ↗</a>}
+                      {manifest.artifacts["transform-assessment.json"] && <a className="inline-flex border-b border-ink font-mono text-[10px] uppercase tracking-wider hover:bg-acid" href={diagnosticArtifactUrl(manifest.requestId, "transform-assessment.json")} target="_blank" rel="noreferrer">Open fidelity assessment ↗</a>}
+                      {manifest.artifacts["transform-validator-response.json"] && <a className="inline-flex border-b border-ink font-mono text-[10px] uppercase tracking-wider hover:bg-acid" href={diagnosticArtifactUrl(manifest.requestId, "transform-validator-response.json")} target="_blank" rel="noreferrer">Open validator response ↗</a>}
+                      {manifest.artifacts["extend-scene-analysis.json"] && <a className="inline-flex border-b border-ink font-mono text-[10px] uppercase tracking-wider hover:bg-acid" href={diagnosticArtifactUrl(manifest.requestId, "extend-scene-analysis.json")} target="_blank" rel="noreferrer">Open Extend analysis ↗</a>}
+                      {manifest.artifacts["extend-plan.json"] && <a className="inline-flex border-b border-ink font-mono text-[10px] uppercase tracking-wider hover:bg-acid" href={diagnosticArtifactUrl(manifest.requestId, "extend-plan.json")} target="_blank" rel="noreferrer">Open Extend plan ↗</a>}
                       {manifest.artifacts["provider-response.json"] && <a className="inline-flex border-b border-ink font-mono text-[10px] uppercase tracking-wider hover:bg-acid" href={diagnosticArtifactUrl(manifest.requestId, "provider-response.json")} target="_blank" rel="noreferrer">Open image response ↗</a>}
                       {manifest.artifacts["candidate-analysis.json"] && <a className="inline-flex border-b border-ink font-mono text-[10px] uppercase tracking-wider hover:bg-acid" href={diagnosticArtifactUrl(manifest.requestId, "candidate-analysis.json")} target="_blank" rel="noreferrer">Open candidate analysis ↗</a>}
                     </div>

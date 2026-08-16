@@ -33,4 +33,17 @@ describe("FakeImageEditProvider", () => {
     const provider = new FakeImageEditProvider();
     await expect(provider.edit({ imagePng: await png(1, 1, [0, 0, 0, 255]), maskPng: await png(1, 1, [255, 255, 255, 255]), width: 1, height: 1, operation: "restyle", boundaryPolicy: "review", prompt: "" })).rejects.toThrow(/Describe/);
   });
+
+  it("transforms the complete image without a provider mask", async () => {
+    const provider = new FakeImageEditProvider();
+    const result = await provider.edit({ imagePng: await png(2, 2, [10, 20, 30, 255]), width: 2, height: 2, operation: "transform", boundaryPolicy: "review", prompt: "Render as ink" });
+    expect(await sharp(result.candidatePng).metadata()).toMatchObject({ width: 2, height: 2 });
+  });
+
+  it("rejects maskless localized edits and masked transforms", async () => {
+    const provider = new FakeImageEditProvider();
+    const imagePng = await png(1, 1, [0, 0, 0, 255]);
+    await expect(provider.edit({ imagePng, width: 1, height: 1, operation: "restyle", boundaryPolicy: "review", prompt: "copper" })).rejects.toThrow(/mask is required/i);
+    await expect(provider.edit({ imagePng, maskPng: imagePng, width: 1, height: 1, operation: "transform", boundaryPolicy: "review", prompt: "ink" })).rejects.toThrow(/must not send/i);
+  });
 });

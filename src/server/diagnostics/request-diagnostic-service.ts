@@ -24,7 +24,7 @@ export class RequestDiagnosticSession implements ImageEditDiagnosticSink {
     const bundlePath = repository.bundlePath(input.projectId, input.requestId);
     const now = new Date().toISOString();
     const manifest: RequestDiagnosticManifest = {
-      schemaVersion: 3,
+      schemaVersion: 4,
       projectId: input.projectId,
       requestId: input.requestId,
       retryOfRequestId: input.retryOfRequestId,
@@ -42,6 +42,8 @@ export class RequestDiagnosticSession implements ImageEditDiagnosticSink {
       userPrompt: "",
       plannerInstruction: null,
       editPlan: null,
+      transformPlan: null,
+      transformFidelityAssessment: null,
       candidateAnalysis: null,
       providerInstruction: null,
       sourceDimensions: null,
@@ -68,11 +70,13 @@ export class RequestDiagnosticSession implements ImageEditDiagnosticSink {
     await this.safely(`write ${name}`, () => this.repository.writeArtifact(this.requestId, name, bytes, mediaType));
   }
 
-  async metadata(values: Partial<Pick<RequestDiagnosticManifest, "providerRequestId" | "plannerInstruction" | "editPlan" | "candidateAnalysis" | "providerInstruction" | "providerDimensions" | "previewSource" | "configuration">>): Promise<void> {
+  async metadata(values: Partial<Pick<RequestDiagnosticManifest, "providerRequestId" | "plannerInstruction" | "editPlan" | "transformPlan" | "transformFidelityAssessment" | "candidateAnalysis" | "providerInstruction" | "providerDimensions" | "previewSource" | "configuration">>): Promise<void> {
     await this.safely("update metadata", () => this.repository.mutate(this.requestId, (manifest) => {
       if (values.providerRequestId !== undefined) manifest.providerRequestId = values.providerRequestId;
       if (values.plannerInstruction !== undefined) manifest.plannerInstruction = values.plannerInstruction;
       if (values.editPlan !== undefined) manifest.editPlan = values.editPlan;
+      if (values.transformPlan !== undefined) manifest.transformPlan = values.transformPlan;
+      if (values.transformFidelityAssessment !== undefined) manifest.transformFidelityAssessment = values.transformFidelityAssessment;
       if (values.candidateAnalysis !== undefined) manifest.candidateAnalysis = values.candidateAnalysis;
       if (values.providerInstruction !== undefined) manifest.providerInstruction = values.providerInstruction;
       if (values.providerDimensions !== undefined) manifest.providerDimensions = values.providerDimensions;

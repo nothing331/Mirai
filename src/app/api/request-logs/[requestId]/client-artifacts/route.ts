@@ -17,8 +17,9 @@ export async function POST(request: Request, context: { params: Promise<{ reques
     if (boundaryPolicy !== manifest.boundaryPolicy) return Response.json({ error: "Preview boundary policy does not match this request." }, { status: 409 });
     const bytes = new Uint8Array(await preview.arrayBuffer());
     const metadata = await sharp(bytes).metadata();
-    if (metadata.format !== "png" || metadata.width !== manifest.sourceDimensions?.width || metadata.height !== manifest.sourceDimensions.height) {
-      return Response.json({ error: "Final preview must be a source-dimension PNG." }, { status: 400 });
+    const expectedDimensions = manifest.operation === "extend" ? manifest.providerDimensions : manifest.sourceDimensions;
+    if (metadata.format !== "png" || !expectedDimensions || metadata.width !== expectedDimensions.width || metadata.height !== expectedDimensions.height) {
+      return Response.json({ error: "Final preview dimensions do not match the request output." }, { status: 400 });
     }
     await requestDiagnosticRepository.writeArtifact(requestId, "final-preview.png", bytes, "image/png");
     await requestDiagnosticRepository.mutate(requestId, (current) => {

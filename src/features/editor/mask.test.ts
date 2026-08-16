@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { createGenerativeProviderMask, createMask, deserializeMask, fillPolygonMask, getMaskBounds, paintMask, serializeMask } from "./mask";
+import { createFullImageMask, createGenerativeProviderMask, createMask, deserializeMask, fillPolygonMask, getMaskBounds, paintMask, serializeMask } from "./mask";
 
 describe("processing masks", () => {
+  it("creates a fully selected source-resolution mask", () => {
+    expect([...createFullImageMask(2, 2).data]).toEqual([255, 255, 255, 255]);
+  });
   it("always uses source dimensions", () => {
     const mask = createMask(12, 7);
     expect(mask.data).toHaveLength(84);

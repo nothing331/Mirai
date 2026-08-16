@@ -7,8 +7,13 @@ import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 import type { EditBoundaryPolicy } from "@/shared/edit-boundary";
 import { useEditorStore } from "../store";
-import type { EditType, FakeScenario, SelectionMode } from "../types";
-import type { ProviderCapabilities } from "./workspace-types";
+import type { EditType, FakeScenario, GeometryEditType, SelectionMode, TransformInput } from "../types";
+import { TransformInspector } from "./TransformInspector";
+import { ExtendInspector } from "./ExtendInspector";
+import { SizePositionInspector } from "./SizePositionInspector";
+import { TextInspector } from "./TextInspector";
+import { WatermarkInspector } from "./WatermarkInspector";
+import type { ProviderCapabilities, WorkspaceWorkflow } from "./workspace-types";
 import type { WorkspacePhase } from "./workspace-phase";
 
 const editModes: Array<{ value: EditType; label: string; accessibleLabel: string }> = [
@@ -22,15 +27,25 @@ export function EditorInspector({
   phase,
   providerCapabilities,
   realRequestsUsed,
+  workflow,
+  onSelectGeometryEdit,
   onGenerate,
+  onGenerateTransform,
+  onPlanExtend,
+  onGenerateExtend,
   onRetry,
   onOpenDiagnostics,
 }: {
   phase: WorkspacePhase;
   providerCapabilities: ProviderCapabilities | null;
   realRequestsUsed: number;
+  workflow: WorkspaceWorkflow;
+  onSelectGeometryEdit: (editType: GeometryEditType) => void;
   onGenerate: () => void;
-  onRetry: () => void;
+  onGenerateTransform: (input: TransformInput) => Promise<boolean>;
+  onPlanExtend: (input: import("../types").ExtendInput) => Promise<boolean>;
+  onGenerateExtend: () => Promise<boolean>;
+  onRetry: () => Promise<boolean>;
   onOpenDiagnostics: () => void;
 }) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -70,6 +85,14 @@ export function EditorInspector({
       </div>
     );
   }
+
+  if (workflow.kind === "size-position") return <SizePositionInspector onSelectEdit={onSelectGeometryEdit} />;
+  if (workflow.kind === "text") return <TextInspector />;
+  if (workflow.kind === "watermark") return <WatermarkInspector />;
+  if (workflow.kind === "transform") {
+    return <TransformInspector providerCapabilities={providerCapabilities} realRequestsUsed={realRequestsUsed} onGenerate={onGenerateTransform} onRetry={onRetry} onOpenDiagnostics={onOpenDiagnostics} />;
+  }
+  if (workflow.kind === "extend") return <ExtendInspector onPlan={onPlanExtend} onGenerate={onGenerateExtend} requestLimitReached={requestLimitReached} />;
 
   if (phase === "preview") {
     return (
@@ -233,7 +256,7 @@ export function EditorInspector({
             <code className="break-all font-mono text-[8px]">Request {state.generativeState.snapshot.requestId}</code>
             <div className="flex flex-wrap gap-2">
               <button type="button" className="h-8 bg-paper px-2 font-bold text-ink hover:bg-white" onClick={onOpenDiagnostics}><Activity className="mr-1 inline size-3" />View diagnostics</button>
-              {state.generativeState.retryable && <button type="button" className="h-8 bg-paper px-2 font-bold text-ink hover:bg-white" onClick={onRetry}>Retry same request</button>}
+              {state.generativeState.retryable && <button type="button" className="h-8 bg-paper px-2 font-bold text-ink hover:bg-white" onClick={() => void onRetry()}>Retry same request</button>}
             </div>
           </div>
         )}

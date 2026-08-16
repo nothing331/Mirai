@@ -1,4 +1,8 @@
 import type { CandidateAnalysis, EditBoundaryPolicy } from "@/shared/edit-boundary";
+import type { TransformFidelityAssessment } from "@/shared/transform-fidelity";
+import type { TransformPresetId, TransformPreservationMode } from "@/shared/transform-presets";
+import type { ExtendPresetId } from "@/shared/extend-presets";
+import type { ExtendSceneAnalysis, ExtendStrategy, SmartReframePlan } from "@/shared/extend-plan";
 
 export type Tool = "lasso" | "brush" | "eraser" | "pan";
 
@@ -74,8 +78,83 @@ export interface MaskAsset extends ProcessingMask {
   id: string;
 }
 
+export interface OverlayImageAsset {
+  id: string;
+  width: number;
+  height: number;
+  mediaType: "image/png";
+  pixels: Uint8ClampedArray;
+  dataUrl: string;
+  originalName: string;
+}
+
+export interface CropRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export type CropRatio = "free" | "original" | "1:1" | "4:5" | "3:2" | "16:9" | "9:16";
+export type GeometryEditType = "crop" | "resize" | "rotate" | "flip";
+
+export interface TextOverlayParameters {
+  content: string;
+  x: number;
+  y: number;
+  width: number;
+  fontFamily: "Manrope" | "Georgia" | "DM Mono";
+  fontSize: number;
+  fontWeight: 400 | 600 | 700;
+  color: string;
+  opacity: number;
+  rotation: number;
+  align: "left" | "center" | "right";
+  backgroundColor: string | null;
+  padding: number;
+}
+
+export interface WatermarkParameters {
+  source: "text" | "image";
+  content: string;
+  overlayAssetId: string | null;
+  x: number;
+  y: number;
+  width: number;
+  fontFamily: "Manrope" | "Georgia" | "DM Mono";
+  fontSize: number;
+  color: string;
+  opacity: number;
+  rotation: number;
+  anchor: "free" | "north-west" | "north" | "north-east" | "west" | "center" | "east" | "south-west" | "south" | "south-east";
+  margin: number;
+}
+
+export type LocalEditDraft =
+  | { id: string; inputVersionId: string; type: "crop"; parameters: { sourceRect: CropRect; ratio: CropRatio } }
+  | { id: string; inputVersionId: string; type: "resize"; parameters: { width: number; height: number; preserveAspectRatio: boolean; preventUpscale: boolean } }
+  | { id: string; inputVersionId: string; type: "rotate"; parameters: { quarterTurns: 1 | 2 | 3 } }
+  | { id: string; inputVersionId: string; type: "flip"; parameters: { axis: "horizontal" | "vertical" } }
+  | { id: string; inputVersionId: string; type: "text"; parameters: TextOverlayParameters }
+  | { id: string; inputVersionId: string; type: "watermark"; parameters: WatermarkParameters };
+
 export type EditType = "recolor" | "remove" | "replace" | "restyle";
 export type FakeScenario = "success" | "slow" | "retryable-error" | "fatal-error";
+
+export interface TransformInput {
+  presetId: TransformPresetId | null;
+  presetVersion: number | null;
+  userPrompt: string;
+  preservationMode: TransformPreservationMode;
+}
+
+interface GenerativeTransformParameters extends TransformInput {
+  resolvedInstruction: string;
+  providerRequestId: string;
+  diagnosticRequestId: string;
+  candidateAnalysis: CandidateAnalysis;
+  transformFidelityAssessment: TransformFidelityAssessment;
+}
 
 interface PreviewBase {
   id: string;
@@ -83,11 +162,19 @@ interface PreviewBase {
   mask: MaskAsset;
   pixels: Uint8ClampedArray;
   dataUrl: string;
+  width: number;
+  height: number;
 }
+
+export interface ExtendInput { presetId: ExtendPresetId; presetVersion: 1; strategy: ExtendStrategy; userPrompt: string }
+export interface ExtendParameters extends ExtendInput { plan: SmartReframePlan; analysis: ExtendSceneAnalysis; resolvedInstruction: string; providerRequestId: string; diagnosticRequestId: string }
 
 export type EditPreview = PreviewBase & (
   | { type: "recolor"; method: "local"; parameters: { color: string } }
   | { type: "paint"; method: "local"; parameters: { colors: string[]; strokeCount: number } }
+  | { type: "transform"; method: "local"; parameters: TransformInput & { resolvedInstruction: string } }
+  | { type: "transform"; method: "generative"; parameters: GenerativeTransformParameters }
+  | { type: "extend"; method: "generative"; parameters: ExtendParameters }
   | { type: "remove" | "replace" | "restyle"; method: "generative"; parameters: { prompt: string; providerRequestId: string; diagnosticRequestId: string; boundaryPolicy: EditBoundaryPolicy; candidateAnalysis: CandidateAnalysis } }
 );
 
@@ -102,25 +189,50 @@ interface OperationBase {
 export type EditOperation = OperationBase & (
   | { type: "recolor"; method: "local"; parameters: { color: string } }
   | { type: "paint"; method: "local"; parameters: { colors: string[]; strokeCount: number } }
+  | { type: "crop"; method: "local"; parameters: { sourceRect: CropRect; ratio: CropRatio } }
+  | { type: "resize"; method: "local"; parameters: { width: number; height: number; preserveAspectRatio: boolean; preventUpscale: boolean } }
+  | { type: "rotate"; method: "local"; parameters: { quarterTurns: 1 | 2 | 3 } }
+  | { type: "flip"; method: "local"; parameters: { axis: "horizontal" | "vertical" } }
+  | { type: "text"; method: "local"; parameters: TextOverlayParameters }
+  | { type: "watermark"; method: "local"; parameters: WatermarkParameters }
+  | { type: "transform"; method: "local"; parameters: TransformInput & { resolvedInstruction: string } }
+  | { type: "transform"; method: "generative"; parameters: GenerativeTransformParameters }
+  | { type: "extend"; method: "generative"; parameters: ExtendParameters }
   | { type: "remove" | "replace" | "restyle"; method: "generative"; parameters: { prompt: string; providerRequestId: string; diagnosticRequestId: string; boundaryPolicy: EditBoundaryPolicy; candidateAnalysis: CandidateAnalysis } }
 );
 
-export interface GenerativeRequestSnapshot {
+interface GenerativeRequestBase {
   projectId: string;
   requestId: string;
   retryOfRequestId: string | null;
   inputVersion: ImageVersion;
+  providerMask: ProcessingMask;
+  scenario: FakeScenario;
+}
+
+export interface LocalizedGenerativeRequestSnapshot extends GenerativeRequestBase {
   selectionId: string;
   selectionMask: ProcessingMask;
-  providerMask: ProcessingMask;
   boundaryPolicy: EditBoundaryPolicy;
   operation: "remove" | "replace" | "restyle";
   prompt: string;
-  scenario: FakeScenario;
 }
+
+export interface TransformRequestSnapshot extends GenerativeRequestBase, TransformInput {
+  operation: "transform";
+}
+
+export type GenerativeRequestSnapshot = LocalizedGenerativeRequestSnapshot | TransformRequestSnapshot;
 
 export type GenerativePreviewState =
   | { status: "idle"; snapshot: null; error: null; retryable: false }
   | { status: "processing"; snapshot: GenerativeRequestSnapshot; error: null; retryable: false }
   | { status: "preview"; snapshot: GenerativeRequestSnapshot; error: null; retryable: false }
   | { status: "failed"; snapshot: GenerativeRequestSnapshot; error: string; retryable: boolean };
+
+export type ExtendDraftState =
+  | { status: "idle"; input: ExtendInput | null; analysis: ExtendSceneAnalysis | null; plan: null; error: null }
+  | { status: "analyzing"; input: ExtendInput; analysis: ExtendSceneAnalysis | null; plan: null; error: null }
+  | { status: "planned"; input: ExtendInput; analysis: ExtendSceneAnalysis; plan: SmartReframePlan; error: null }
+  | { status: "generating"; phase: "sending" | "generating" | "preparing"; input: ExtendInput; analysis: ExtendSceneAnalysis; plan: SmartReframePlan; error: null }
+  | { status: "failed"; input: ExtendInput; analysis: ExtendSceneAnalysis | null; plan: SmartReframePlan | null; error: string };

@@ -1,6 +1,7 @@
 import { compositeCandidate } from "./composite";
 import { decodeImage, pixelsToDataUrl } from "./image-data";
-import type { CandidateAnalysis } from "@/shared/edit-boundary";
+import type { CandidateAnalysis, EditBoundaryPolicy } from "@/shared/edit-boundary";
+import type { TransformFidelityAssessment } from "@/shared/transform-fidelity";
 import type { GenerativeRequestSnapshot, ProcessingMask } from "./types";
 
 interface GenerativeCandidate {
@@ -9,6 +10,8 @@ interface GenerativeCandidate {
   providerRequestId: string;
   diagnosticRequestId: string;
   candidateAnalysis: CandidateAnalysis;
+  resolvedInstruction: string | null;
+  transformFidelityAssessment?: TransformFidelityAssessment | null;
 }
 
 export class GenerativeRequestError extends Error {
@@ -28,11 +31,17 @@ export async function requestGenerativeCandidate(snapshot: GenerativeRequestSnap
   const form = new FormData();
   const sourcePng = pixelsToDataUrl(snapshot.inputVersion.pixels, snapshot.inputVersion.width, snapshot.inputVersion.height);
   form.set("image", new File([await (await fetch(sourcePng)).blob()], "image.png", { type: "image/png" }));
-  form.set("selectionMask", new File([maskToPngBlob(snapshot.selectionMask)], "selection-mask.png", { type: "image/png" }));
-  form.set("mask", new File([maskToPngBlob(snapshot.providerMask)], "provider-focus-mask.png", { type: "image/png" }));
-  form.set("boundaryPolicy", snapshot.boundaryPolicy);
+  if (snapshot.operation === "transform") {
+    form.set("presetId", snapshot.presetId ?? "");
+    form.set("presetVersion", snapshot.presetVersion === null ? "" : String(snapshot.presetVersion));
+    form.set("preservationMode", snapshot.preservationMode);
+  } else {
+    form.set("selectionMask", new File([maskToPngBlob(snapshot.selectionMask)], "selection-mask.png", { type: "image/png" }));
+    form.set("mask", new File([maskToPngBlob(snapshot.providerMask)], "provider-focus-mask.png", { type: "image/png" }));
+  }
+  form.set("boundaryPolicy", snapshot.operation === "transform" ? "review" : snapshot.boundaryPolicy);
   form.set("operation", snapshot.operation);
-  form.set("prompt", snapshot.prompt);
+  form.set("prompt", snapshot.operation === "transform" ? snapshot.userPrompt : snapshot.prompt);
   form.set("scenario", snapshot.scenario);
   const headers: Record<string, string> = {
     "x-project-id": snapshot.projectId,
@@ -49,6 +58,8 @@ export async function requestGenerativeCandidate(snapshot: GenerativeRequestSnap
     retryable?: boolean;
     imageGenerationAttempted?: boolean;
     candidateAnalysis?: CandidateAnalysis;
+    resolvedInstruction?: string;
+    transformFidelityAssessment?: TransformFidelityAssessment | null;
   };
   const responseRequestId = payload.requestId ?? response.headers.get("x-request-id") ?? snapshot.requestId;
   if (!response.ok || !payload.candidateBase64 || !payload.providerRequestId || !payload.candidateAnalysis) {
@@ -67,10 +78,19 @@ export async function requestGenerativeCandidate(snapshot: GenerativeRequestSnap
   if (candidate.width !== snapshot.inputVersion.width || candidate.height !== snapshot.inputVersion.height) {
     throw new GenerativeRequestError("The provider candidate dimensions do not match the input image.", false, responseRequestId);
   }
-  const pixels = prepareGenerativePreviewPixels(snapshot.inputVersion.pixels, candidate.pixels, snapshot.providerMask, snapshot.boundaryPolicy);
+  const boundaryPolicy = snapshot.operation === "transform" ? "review" : snapshot.boundaryPolicy;
+  const pixels = prepareGenerativePreviewPixels(snapshot.inputVersion.pixels, candidate.pixels, snapshot.providerMask, boundaryPolicy);
   const dataUrl = pixelsToDataUrl(pixels, candidate.width, candidate.height);
-  await uploadFinalPreview(snapshot.projectId, responseRequestId, dataUrl, snapshot.boundaryPolicy);
-  return { pixels, dataUrl, providerRequestId: payload.providerRequestId, diagnosticRequestId: responseRequestId, candidateAnalysis: payload.candidateAnalysis };
+  await uploadFinalPreview(snapshot.projectId, responseRequestId, dataUrl, boundaryPolicy);
+  return {
+    pixels,
+    dataUrl,
+    providerRequestId: payload.providerRequestId,
+    diagnosticRequestId: responseRequestId,
+    candidateAnalysis: payload.candidateAnalysis,
+    resolvedInstruction: payload.resolvedInstruction ?? null,
+    transformFidelityAssessment: payload.transformFidelityAssessment ?? null,
+  };
 }
 
 /** Makes provider pixels authoritative in review mode and applies exact restoration only in protected mode. */
@@ -78,7 +98,7 @@ export function prepareGenerativePreviewPixels(
   input: Uint8ClampedArray,
   candidate: Uint8ClampedArray,
   mask: ProcessingMask,
-  boundaryPolicy: GenerativeRequestSnapshot["boundaryPolicy"],
+  boundaryPolicy: EditBoundaryPolicy,
 ): Uint8ClampedArray {
   return boundaryPolicy === "protected"
     ? compositeCandidate(input, candidate, mask)
@@ -106,7 +126,7 @@ function maskToPngBlob(mask: ProcessingMask): Blob {
   return new Blob([Uint8Array.from(binary, (character) => character.charCodeAt(0))], { type: "image/png" });
 }
 
-async function uploadFinalPreview(projectId: string, requestId: string, dataUrl: string, boundaryPolicy: GenerativeRequestSnapshot["boundaryPolicy"]): Promise<void> {
+async function uploadFinalPreview(projectId: string, requestId: string, dataUrl: string, boundaryPolicy: EditBoundaryPolicy): Promise<void> {
   try {
     const form = new FormData();
     form.set("finalPreview", new File([await (await fetch(dataUrl)).blob()], "final-preview.png", { type: "image/png" }));
