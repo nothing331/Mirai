@@ -1,7 +1,7 @@
 import type { ImageEditDiagnosticSink } from "@/shared/request-diagnostics";
 
 export interface AssetGeneratorRequest {
-  mode: "mark" | "image" | "transform";
+  mode: "mark" | "image";
   prompt: string;
   count: 1;
   width: number;
@@ -9,7 +9,6 @@ export interface AssetGeneratorRequest {
   quality: "low";
   matteColor: string | null;
   colors: string[];
-  sourcePng?: Uint8Array;
 }
 
 export interface RawAssetCandidate {

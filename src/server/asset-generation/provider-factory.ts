@@ -1,6 +1,7 @@
 import { parsePositiveInteger } from "@/server/ai/provider-factory";
 import type { AssetGenerationCapabilities, AssetGenerationProviderName } from "@/shared/asset-generation";
 import type { AssetGenerator } from "./contracts";
+import { imageFormatCapabilities } from "./creation-presets";
 import { FakeAssetGenerator } from "./fake-provider";
 import { OpenAIAssetGenerator } from "./openai-provider";
 
@@ -15,7 +16,8 @@ export function assetGenerationCapabilities(): AssetGenerationCapabilities {
     model: provider === "openai" ? (process.env.OPENAI_ASSET_GENERATION_MODEL ?? "gpt-image-2") : "fake-asset-generator",
     quality: "low",
     candidateCount: 1,
-    sizes: ["1024x1024", "1536x1024", "1024x1536"],
+    markSize: { width: 1024, height: 1024 },
+    imageFormats: imageFormatCapabilities(),
     nativeTransparency: false,
     maxBatchesPerSession: parsePositiveInteger(process.env.OPENAI_ASSET_MAX_BATCHES_PER_SESSION, 2),
   };

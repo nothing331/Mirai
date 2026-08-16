@@ -23,13 +23,11 @@ describe("FakeAssetGenerator", () => {
     }));
   });
 
-  it("creates a requested landscape image and transforms one source", async () => {
+  it("creates complete images at each requested destination shape", async () => {
     const provider = new FakeAssetGenerator();
-    const generated = await provider.generate({ mode: "image", prompt: "sunset", count: 1, width: 1536, height: 1024, quality: "low", matteColor: null, colors: [] });
-    expect(await sharp(generated.candidates[0].png).metadata()).toMatchObject({ width: 1536, height: 1024 });
-
-    const source = await sharp({ create: { width: 64, height: 96, channels: 4, background: "#2865b8" } }).png().toBuffer();
-    const transformed = await provider.generate({ mode: "transform", prompt: "warm", count: 1, width: 1024, height: 1536, quality: "low", matteColor: null, colors: [], sourcePng: source });
-    expect(await sharp(transformed.candidates[0].png).metadata()).toMatchObject({ width: 1024, height: 1536 });
+    for (const [width, height] of [[1024, 1024], [1024, 1280], [720, 1280], [1280, 720]]) {
+      const generated = await provider.generate({ mode: "image", prompt: "sunset", count: 1, width, height, quality: "low", matteColor: null, colors: [] });
+      expect(await sharp(generated.candidates[0].png).metadata()).toMatchObject({ width, height });
+    }
   });
 });

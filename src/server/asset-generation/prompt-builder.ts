@@ -1,4 +1,6 @@
-import type { AssetGenerationBrief } from "@/shared/asset-generation";
+import type { AssetGenerationBrief, ImageTreatment } from "@/shared/asset-generation";
+import type { ResolvedImageFormat } from "./creation-presets";
+import { resolveImageTreatment } from "./creation-presets";
 
 const styleInstructions: Record<AssetGenerationBrief["style"], string> = {
   "minimal-geometric": "minimal geometric construction with deliberate, simple shapes",
@@ -53,31 +55,23 @@ export function buildAssetGenerationPrompt(brief: AssetGenerationBrief, matteCol
   ].join("\n");
 }
 
-export function buildImageGenerationPrompt(prompt: string): string {
+export function buildImageGenerationPrompt(prompt: string, treatment: ImageTreatment, format: ResolvedImageFormat): string {
+  const treatmentInstruction = resolveImageTreatment(treatment);
   return [
     "Create one complete, production-ready image from the user's request.",
     "",
     "User request:",
     prompt.trim(),
     "",
+    ...(treatmentInstruction ? ["Visual treatment:", treatmentInstruction, ""] : []),
+    "Composition:",
+    format.compositionInstruction,
+    "The treatment changes rendering style only; preserve the requested subject and meaning.",
+    "",
     "Output requirements:",
     "Fill the complete frame with one coherent composition at the requested aspect ratio.",
     "Do not create a comparison, contact sheet, presentation board, frame, border, watermark, signature, or UI mockup unless the user explicitly requests one.",
     "Render only the final image.",
-  ].join("\n");
-}
-
-export function buildImageTransformPrompt(prompt: string): string {
-  return [
-    "Transform the provided source image according to the user's instruction.",
-    "",
-    "User instruction:",
-    prompt.trim(),
-    "",
-    "Preservation requirements:",
-    "Use the source as the visual and compositional reference.",
-    "Preserve recognizable subjects, layout, perspective, and details that the instruction does not ask to change.",
-    "Return one complete transformed image, not a before-and-after comparison, contact sheet, frame, watermark, or explanation.",
   ].join("\n");
 }
 

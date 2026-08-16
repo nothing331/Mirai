@@ -15,10 +15,6 @@ export class FakeAssetGenerator implements AssetGenerator {
 }
 
 async function renderCandidate(request: AssetGeneratorRequest): Promise<Buffer> {
-  if (request.mode === "transform" && request.sourcePng) {
-    const wash = Buffer.from(`<svg width="${request.width}" height="${request.height}" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#d8f441" stop-opacity=".18"/><stop offset="1" stop-color="#16c7df" stop-opacity=".10"/></linearGradient></defs><rect width="100%" height="100%" fill="url(#g)"/></svg>`);
-    return sharp(request.sourcePng).resize(request.width, request.height, { fit: "cover" }).modulate({ brightness: 1.04, saturation: 1.12 }).composite([{ input: wash }]).png().toBuffer();
-  }
   if (request.mode === "image") {
     const width = request.width;
     const height = request.height;

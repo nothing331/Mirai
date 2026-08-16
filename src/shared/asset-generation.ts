@@ -3,8 +3,12 @@ import { z } from "zod";
 export const assetTypes = ["icon", "logo-mark"] as const;
 export const assetStyles = ["minimal-geometric", "monoline", "flat", "bold", "playful"] as const;
 export const assetDetailLevels = ["simple", "balanced", "detailed"] as const;
-export const assetGenerationSizes = ["1024x1024", "1536x1024", "1024x1536"] as const;
-export type AssetGenerationSize = typeof assetGenerationSizes[number];
+export const imageTreatments = ["auto", "photograph", "sketch", "watercolor", "digital-art", "three-dimensional", "anime"] as const;
+export const imageFormats = ["instagram-post", "instagram-portrait", "story-reel", "youtube-thumbnail"] as const;
+
+export type ImageTreatment = typeof imageTreatments[number];
+export type ImageFormat = typeof imageFormats[number];
+export type AssetCreationFormat = "square-mark" | ImageFormat;
 
 export const assetGenerationBriefSchema = z.object({
   assetType: z.enum(assetTypes),
@@ -20,34 +24,39 @@ export const assetGenerationBriefSchema = z.object({
 });
 
 export type AssetGenerationBrief = z.infer<typeof assetGenerationBriefSchema>;
+
 export const assetCreationRequestSchema = z.discriminatedUnion("mode", [
-  z.object({ mode: z.literal("mark"), brief: assetGenerationBriefSchema, size: z.literal("1024x1024") }),
+  z.object({
+    mode: z.literal("mark"),
+    brief: assetGenerationBriefSchema,
+    format: z.literal("square-mark"),
+  }).strict(),
   z.object({
     mode: z.literal("image"),
     prompt: z.string().trim().min(3, "Describe the image you want to create.").max(2000, "Keep the prompt under 2,000 characters."),
-    size: z.enum(assetGenerationSizes),
-  }),
-  z.object({
-    mode: z.literal("transform"),
-    prompt: z.string().trim().min(3, "Describe how the source image should change.").max(2000, "Keep the prompt under 2,000 characters."),
-    size: z.enum(assetGenerationSizes),
-    source: z.object({
-      mimeType: z.enum(["image/png", "image/jpeg"]),
-      dataBase64: z.string().min(1, "Choose a source image.").max(28_000_000, "Keep the source image under 20 MB."),
-    }),
-  }),
+    treatment: z.enum(imageTreatments),
+    format: z.enum(imageFormats),
+  }).strict(),
 ]);
+
 export type AssetCreationRequest = z.infer<typeof assetCreationRequestSchema>;
 export type AssetCreationMode = AssetCreationRequest["mode"];
 export type AssetGenerationProviderName = "fake" | "openai";
 export type AssetTransparencyStatus = "clean" | "warning" | "failed";
+
+export interface ImageFormatCapability {
+  id: ImageFormat;
+  width: number;
+  height: number;
+}
 
 export interface AssetGenerationCapabilities {
   provider: AssetGenerationProviderName;
   model: string;
   quality: "low";
   candidateCount: 1;
-  sizes: AssetGenerationSize[];
+  markSize: { width: 1024; height: 1024 };
+  imageFormats: ImageFormatCapability[];
   nativeTransparency: false;
   maxBatchesPerSession: number;
 }
@@ -70,9 +79,11 @@ export interface AssetGenerationResponse {
   provider: AssetGenerationProviderName;
   providerRequestId: string;
   model: string;
-  quality: "low" | "medium" | "high";
+  quality: "low";
   mode: AssetCreationMode;
-  size: AssetGenerationSize;
+  format: AssetCreationFormat;
+  width: number;
+  height: number;
   prompt: string;
   candidates: AssetGenerationCandidate[];
   warnings: string[];
@@ -82,16 +93,19 @@ export interface AssetGenerationResponse {
 export interface GeneratedProjectOrigin {
   kind: "asset-generation";
   requestId: string;
-  mode: AssetCreationMode;
+  creationMode: AssetCreationMode;
   assetType?: AssetGenerationBrief["assetType"];
   description: string;
   style?: AssetGenerationBrief["style"];
+  treatment?: ImageTreatment;
+  format: AssetCreationFormat;
+  width: number;
+  height: number;
   colorMode?: AssetGenerationBrief["colorMode"];
   colors: string[];
-  size: AssetGenerationSize;
   provider: AssetGenerationProviderName;
   model: string;
-  quality: "low" | "medium" | "high";
+  quality: "low";
 }
 
 export type ProjectOrigin = { kind: "upload" } | GeneratedProjectOrigin;

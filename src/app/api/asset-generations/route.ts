@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import sharp from "sharp";
-import { assetCreationRequestSchema, type AssetCreationRequest, type AssetGenerationResponse, type AssetGenerationSize } from "@/shared/asset-generation";
+import { assetCreationRequestSchema, type AssetCreationRequest, type AssetGenerationResponse } from "@/shared/asset-generation";
 import type { DiagnosticArtifactName, RequestDiagnosticError } from "@/shared/request-diagnostics";
 import { normalizeAssetCandidate } from "@/server/asset-generation/candidate-normalizer";
 import { AssetGenerationProviderError } from "@/server/asset-generation/contracts";
-import { buildAssetGenerationPrompt, buildImageGenerationPrompt, buildImageTransformPrompt, chooseMatteColor } from "@/server/asset-generation/prompt-builder";
+import { buildAssetGenerationPrompt, buildImageGenerationPrompt, chooseMatteColor } from "@/server/asset-generation/prompt-builder";
+import { resolveImageFormat } from "@/server/asset-generation/creation-presets";
 import { assetGenerationCapabilities, createAssetGenerator } from "@/server/asset-generation/provider-factory";
 import { startRequestDiagnostics } from "@/server/diagnostics/request-diagnostic-service";
 
@@ -30,9 +31,8 @@ export async function POST(request: Request) {
       operation: "asset-generation",
       boundaryPolicy: "review",
       userPrompt: creation.userPrompt,
-      sourceDimensions: creation.sourceDimensions,
+      sourceDimensions: null,
     });
-    if (creation.sourcePng) await diagnostics?.artifact("source-input.png", creation.sourcePng, "image/png");
     await diagnostics?.metadata({
       providerInstruction: creation.prompt,
       providerDimensions: { width: creation.width, height: creation.height },
@@ -40,14 +40,15 @@ export async function POST(request: Request) {
         model: capabilities.model,
         quality: capabilities.quality,
         candidateCount: capabilities.candidateCount,
-        outputSize: parsed.data.size,
+        outputFormat: parsed.data.format,
         creationMode: parsed.data.mode,
+        treatment: parsed.data.mode === "image" ? parsed.data.treatment : null,
         colorMode: parsed.data.mode === "mark" ? parsed.data.brief.colorMode : null,
         matteColor: creation.matteColor,
         localTransparency: parsed.data.mode === "mark",
       },
     });
-    await diagnostics?.event("validated", `Validated the ${parsed.data.mode} request and built its provider instruction.`, { creationMode: parsed.data.mode, outputSize: parsed.data.size });
+    await diagnostics?.event("validated", `Validated the ${parsed.data.mode} request and built its provider instruction.`, { creationMode: parsed.data.mode, outputFormat: parsed.data.format });
 
     imageGenerationAttempted = true;
     const result = await createAssetGenerator().generate({
@@ -59,7 +60,6 @@ export async function POST(request: Request) {
       quality: capabilities.quality,
       matteColor: creation.matteColor,
       colors: creation.colors,
-      sourcePng: creation.sourcePng,
     }, diagnostics ?? undefined);
     const candidates = await Promise.all(result.candidates.map(async (candidate, index) => {
       await diagnostics?.artifact(candidateArtifactName(index, true), candidate.png, "image/png");
@@ -91,7 +91,9 @@ export async function POST(request: Request) {
       model: capabilities.model,
       quality: capabilities.quality,
       mode: parsed.data.mode,
-      size: parsed.data.size,
+      format: parsed.data.format,
+      width: creation.width,
+      height: creation.height,
       prompt: creation.prompt,
       candidates,
       warnings,
@@ -122,40 +124,23 @@ interface PreparedCreation {
   height: number;
   matteColor: string | null;
   colors: string[];
-  sourcePng?: Uint8Array;
-  sourceDimensions: { width: number; height: number } | null;
 }
 
-async function prepareCreation(request: AssetCreationRequest): Promise<PreparedCreation> {
-  const { width, height } = dimensionsForSize(request.size);
+function prepareCreation(request: AssetCreationRequest): PreparedCreation {
   if (request.mode === "mark") {
     const colors = request.brief.colorMode === "custom" ? request.brief.colors : [];
     const matteColor = chooseMatteColor(colors);
-    return { prompt: buildAssetGenerationPrompt(request.brief, matteColor), userPrompt: request.brief.description, width, height, matteColor, colors, sourceDimensions: null };
+    return { prompt: buildAssetGenerationPrompt(request.brief, matteColor), userPrompt: request.brief.description, width: 1024, height: 1024, matteColor, colors };
   }
-  if (request.mode === "image") {
-    return { prompt: buildImageGenerationPrompt(request.prompt), userPrompt: request.prompt, width, height, matteColor: null, colors: [], sourceDimensions: null };
-  }
-  let source: Buffer;
-  try {
-    source = Buffer.from(request.source.dataBase64, "base64");
-    if (source.byteLength === 0 || source.byteLength > 20 * 1024 * 1024) throw new Error("Invalid source size.");
-    const metadata = await sharp(source).metadata();
-    if (!metadata.width || !metadata.height) throw new Error("Missing source dimensions.");
-    const sourcePng = await sharp(source).rotate().png().toBuffer();
-    return {
-      prompt: buildImageTransformPrompt(request.prompt),
-      userPrompt: request.prompt,
-      width,
-      height,
-      matteColor: null,
-      colors: [],
-      sourcePng: new Uint8Array(sourcePng),
-      sourceDimensions: { width: metadata.width, height: metadata.height },
-    };
-  } catch {
-    throw new RequestValidationError("Choose a valid PNG or JPEG source image under 20 MB.");
-  }
+  const format = resolveImageFormat(request.format);
+  return {
+    prompt: buildImageGenerationPrompt(request.prompt, request.treatment, format),
+    userPrompt: request.prompt,
+    width: format.width,
+    height: format.height,
+    matteColor: null,
+    colors: [],
+  };
 }
 
 async function normalizeGeneratedImage(input: Uint8Array): Promise<{ png: Uint8Array; width: number; height: number; transparency?: undefined }> {
@@ -166,11 +151,6 @@ async function normalizeGeneratedImage(input: Uint8Array): Promise<{ png: Uint8A
   } catch {
     throw new AssetGenerationProviderError("The image provider returned an unreadable result.", true);
   }
-}
-
-function dimensionsForSize(size: AssetGenerationSize): { width: number; height: number } {
-  const [width, height] = size.split("x").map(Number);
-  return { width, height };
 }
 
 class RequestValidationError extends Error {
