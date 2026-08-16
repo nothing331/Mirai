@@ -78,6 +78,66 @@ export interface MaskAsset extends ProcessingMask {
   id: string;
 }
 
+export interface OverlayImageAsset {
+  id: string;
+  width: number;
+  height: number;
+  mediaType: "image/png";
+  pixels: Uint8ClampedArray;
+  dataUrl: string;
+  originalName: string;
+}
+
+export interface CropRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export type CropRatio = "free" | "original" | "1:1" | "4:5" | "3:2" | "16:9" | "9:16";
+export type GeometryEditType = "crop" | "resize" | "rotate" | "flip";
+
+export interface TextOverlayParameters {
+  content: string;
+  x: number;
+  y: number;
+  width: number;
+  fontFamily: "Manrope" | "Georgia" | "DM Mono";
+  fontSize: number;
+  fontWeight: 400 | 600 | 700;
+  color: string;
+  opacity: number;
+  rotation: number;
+  align: "left" | "center" | "right";
+  backgroundColor: string | null;
+  padding: number;
+}
+
+export interface WatermarkParameters {
+  source: "text" | "image";
+  content: string;
+  overlayAssetId: string | null;
+  x: number;
+  y: number;
+  width: number;
+  fontFamily: "Manrope" | "Georgia" | "DM Mono";
+  fontSize: number;
+  color: string;
+  opacity: number;
+  rotation: number;
+  anchor: "free" | "north-west" | "north" | "north-east" | "west" | "center" | "east" | "south-west" | "south" | "south-east";
+  margin: number;
+}
+
+export type LocalEditDraft =
+  | { id: string; inputVersionId: string; type: "crop"; parameters: { sourceRect: CropRect; ratio: CropRatio } }
+  | { id: string; inputVersionId: string; type: "resize"; parameters: { width: number; height: number; preserveAspectRatio: boolean; preventUpscale: boolean } }
+  | { id: string; inputVersionId: string; type: "rotate"; parameters: { quarterTurns: 1 | 2 | 3 } }
+  | { id: string; inputVersionId: string; type: "flip"; parameters: { axis: "horizontal" | "vertical" } }
+  | { id: string; inputVersionId: string; type: "text"; parameters: TextOverlayParameters }
+  | { id: string; inputVersionId: string; type: "watermark"; parameters: WatermarkParameters };
+
 export type EditType = "recolor" | "remove" | "replace" | "restyle";
 export type FakeScenario = "success" | "slow" | "retryable-error" | "fatal-error";
 
@@ -129,6 +189,12 @@ interface OperationBase {
 export type EditOperation = OperationBase & (
   | { type: "recolor"; method: "local"; parameters: { color: string } }
   | { type: "paint"; method: "local"; parameters: { colors: string[]; strokeCount: number } }
+  | { type: "crop"; method: "local"; parameters: { sourceRect: CropRect; ratio: CropRatio } }
+  | { type: "resize"; method: "local"; parameters: { width: number; height: number; preserveAspectRatio: boolean; preventUpscale: boolean } }
+  | { type: "rotate"; method: "local"; parameters: { quarterTurns: 1 | 2 | 3 } }
+  | { type: "flip"; method: "local"; parameters: { axis: "horizontal" | "vertical" } }
+  | { type: "text"; method: "local"; parameters: TextOverlayParameters }
+  | { type: "watermark"; method: "local"; parameters: WatermarkParameters }
   | { type: "transform"; method: "local"; parameters: TransformInput & { resolvedInstruction: string } }
   | { type: "transform"; method: "generative"; parameters: GenerativeTransformParameters }
   | { type: "extend"; method: "generative"; parameters: ExtendParameters }

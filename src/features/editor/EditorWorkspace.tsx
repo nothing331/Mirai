@@ -13,15 +13,23 @@ import { CanvasFrame } from "./workspace/CanvasFrame";
 import { EditorInspector } from "./workspace/EditorInspector";
 import { ToolRail } from "./workspace/ToolRail";
 import { WorkspaceHeader } from "./workspace/WorkspaceHeader";
+import { PendingLocalEditDialog } from "./workspace/PendingLocalEditDialog";
 import { deriveWorkspacePhase } from "./workspace/workspace-phase";
-import type { BusyAction, ExportFormat, ProviderCapabilities } from "./workspace/workspace-types";
-import type { Tool, TransformInput } from "./types";
+import type { BusyAction, ExportFormat, ProviderCapabilities, WorkspaceWorkflow } from "./workspace/workspace-types";
+import type { GeometryEditType, LocalEditDraft, Tool, TransformInput } from "./types";
+
+type PendingTransition =
+  | { kind: "workflow"; workflow: WorkspaceWorkflow }
+  | { kind: "geometry"; editType: GeometryEditType };
 
 /** Coordinates project I/O and provider authorization around the editor's domain-owned state. */
 export function EditorWorkspace() {
   const editor = useEditorStore(useShallow((state) => ({
     currentVersionId: state.currentVersionId,
     preview: state.preview,
+    localDraft: state.localDraft,
+    localDraftDirty: state.localDraftDirty,
+    paintSession: state.paintSession,
     generativeState: state.generativeState,
     selectionMask: state.selectionMask,
     editType: state.editType,
@@ -32,6 +40,9 @@ export function EditorWorkspace() {
     restoreProject: state.restoreProject,
     setTool: state.setTool,
     setError: state.setError,
+    beginLocalDraft: state.beginLocalDraft,
+    applyLocalDraft: state.applyLocalDraft,
+    discardLocalDraft: state.discardLocalDraft,
     createPreview: state.createPreview,
     requestGenerativePreview: state.requestGenerativePreview,
     requestTransformPreview: state.requestTransformPreview,
@@ -49,29 +60,58 @@ export function EditorWorkspace() {
   const [savedProjects, setSavedProjects] = useState<SavedProjectSummary[]>([]);
   const [exportFormat, setExportFormat] = useState<ExportFormat>("image/png");
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
-  const [transformSelected, setTransformSelected] = useState(false);
-  const [extendSelected, setExtendSelected] = useState(false);
+  const [workflow, setWorkflow] = useState<WorkspaceWorkflow>(() => ({ kind: "canvas", tool: useEditorStore.getState().tool }));
+  const [pendingTransition, setPendingTransition] = useState<PendingTransition | null>(null);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(() => !useEditorStore.getState().currentVersionId);
   const phase = deriveWorkspacePhase({ hasImage: Boolean(editor.currentVersionId), preview: editor.preview, generativeState: editor.generativeState, selectionMask: editor.selectionMask });
 
-  const selectTool = useCallback((tool: Tool) => {
-    editor.setTool(tool);
-    setTransformSelected(false);
-    setExtendSelected(false);
-    setInspectorCollapsed(tool === "pan");
+  const performTransition = useCallback((transition: PendingTransition) => {
+    if (transition.kind === "geometry") {
+      useEditorStore.getState().beginLocalDraft(transition.editType);
+      return;
+    }
+    const next = transition.workflow;
+    if (editor.paintSession && (next.kind !== "canvas" || (next.tool !== "brush" && next.tool !== "eraser"))) {
+      editor.setError("Apply or discard the pending paint before switching workflows.");
+      return;
+    }
+    if (next.kind === "canvas") {
+      editor.setTool(next.tool);
+      setInspectorCollapsed(next.tool === "pan");
+    } else {
+      setInspectorCollapsed(false);
+      const currentDraft = useEditorStore.getState().localDraft;
+      if (!currentDraft && next.kind === "size-position") editor.beginLocalDraft("crop");
+      if (!currentDraft && next.kind === "text") editor.beginLocalDraft("text");
+      if (!currentDraft && next.kind === "watermark") editor.beginLocalDraft("watermark");
+    }
+    setWorkflow(next);
   }, [editor]);
 
-  const selectTransform = useCallback(() => {
-    setTransformSelected(true);
-    setExtendSelected(false);
-    setInspectorCollapsed(false);
-  }, []);
+  const requestTransition = useCallback((transition: PendingTransition) => {
+    const state = useEditorStore.getState();
+    const draft = state.localDraft;
+    const changingDraft = draft && (transition.kind === "geometry"
+      ? draft.type !== transition.editType
+      : workflow.kind !== transition.workflow.kind);
+    if (!draft || !changingDraft) {
+      performTransition(transition);
+      return;
+    }
+    if (state.localDraftDirty && localDraftChangesOutput(draft, state.versions.find((version) => version.id === draft.inputVersionId))) {
+      setPendingTransition(transition);
+      return;
+    }
+    state.discardLocalDraft();
+    performTransition(transition);
+  }, [performTransition, workflow.kind]);
 
-  const selectExtend = useCallback(() => {
-    setExtendSelected(true);
-    setTransformSelected(false);
-    setInspectorCollapsed(false);
-  }, []);
+  const selectWorkflow = useCallback((next: WorkspaceWorkflow) => requestTransition({ kind: "workflow", workflow: next }), [requestTransition]);
+  const selectGeometryEdit = useCallback((editType: GeometryEditType) => requestTransition({ kind: "geometry", editType }), [requestTransition]);
+
+  const selectTool = useCallback((tool: Tool) => selectWorkflow({ kind: "canvas", tool }), [selectWorkflow]);
+  const selectTransform = useCallback(() => selectWorkflow({ kind: "transform" }), [selectWorkflow]);
+  const selectExtend = useCallback(() => selectWorkflow({ kind: "extend" }), [selectWorkflow]);
 
   useEffect(() => {
     fetch("/api/image-edits").then((response) => response.json()).then((capabilities: ProviderCapabilities) => setProviderCapabilities(capabilities)).catch(() => setProviderCapabilities(null));
@@ -197,8 +237,7 @@ export function EditorWorkspace() {
     editor.setError(null);
     try {
       editor.loadImage(await decodeImage(file));
-      setTransformSelected(false);
-      setExtendSelected(false);
+      setWorkflow({ kind: "canvas", tool: "lasso" });
       setInspectorCollapsed(false);
       setRealRequestsUsed(0);
       sessionStorage.removeItem("local-edit-real-requests");
@@ -227,8 +266,7 @@ export function EditorWorkspace() {
     setBusyAction("open");
     try {
       editor.restoreProject(await openSavedProject(id));
-      setTransformSelected(false);
-      setExtendSelected(false);
+      setWorkflow({ kind: "canvas", tool: "lasso" });
       setInspectorCollapsed(false);
     } catch (error) {
       editor.setError(error instanceof Error ? error.message : "The project could not be opened.");
@@ -258,11 +296,8 @@ export function EditorWorkspace() {
             <ToolRail
               collapsed={inspectorCollapsed}
               disabled={!editor.currentVersionId || phase === "processing" || phase === "preview"}
-              transformSelected={transformSelected}
-              extendSelected={extendSelected}
-              onSelectTool={selectTool}
-              onSelectTransform={selectTransform}
-              onSelectExtend={selectExtend}
+              workflow={workflow}
+              onSelectWorkflow={selectWorkflow}
               onToggleInspector={() => setInspectorCollapsed((current) => !current)}
             />
             {!inspectorCollapsed && (
@@ -271,8 +306,8 @@ export function EditorWorkspace() {
                   phase={phase}
                   providerCapabilities={providerCapabilities}
                   realRequestsUsed={realRequestsUsed}
-                  transformSelected={transformSelected}
-                  extendSelected={extendSelected}
+                  workflow={workflow}
+                  onSelectGeometryEdit={selectGeometryEdit}
                   onGenerate={() => void handleGeneratePreview()}
                   onGenerateTransform={handleTransformPreview}
                   onPlanExtend={editor.planExtend}
@@ -283,10 +318,45 @@ export function EditorWorkspace() {
               </div>
             )}
           </aside>
-          <CanvasFrame busyAction={busyAction} onUpload={handleUpload} extendSelected={extendSelected} onAdjustTransform={handleAdjustTransform} onAdjustExtend={handleAdjustExtend} />
+          <CanvasFrame busyAction={busyAction} onUpload={handleUpload} extendSelected={workflow.kind === "extend"} onAdjustTransform={handleAdjustTransform} onAdjustExtend={handleAdjustExtend} />
         </section>
       </main>
       <DiagnosticsDrawer projectId={editor.projectId} focusRequestId={editor.lastRequestId} open={diagnosticsOpen} onClose={() => setDiagnosticsOpen(false)} />
+      {pendingTransition && editor.localDraft ? (
+        <PendingLocalEditDialog
+          editName={editor.localDraft.type}
+          saveDisabled={!canSaveLocalDraft(editor.localDraft)}
+          onSave={() => {
+            if (!editor.applyLocalDraft()) return;
+            const transition = pendingTransition;
+            setPendingTransition(null);
+            performTransition(transition);
+          }}
+          onDiscard={() => {
+            editor.discardLocalDraft();
+            const transition = pendingTransition;
+            setPendingTransition(null);
+            performTransition(transition);
+          }}
+          onStay={() => setPendingTransition(null)}
+        />
+      ) : null}
     </>
   );
+}
+
+function canSaveLocalDraft(draft: LocalEditDraft) {
+  if (draft.type === "text") return draft.parameters.content.trim().length > 0;
+  if (draft.type === "watermark") return draft.parameters.source === "text" ? draft.parameters.content.trim().length > 0 : Boolean(draft.parameters.overlayAssetId);
+  return true;
+}
+
+function localDraftChangesOutput(draft: LocalEditDraft, input: { width: number; height: number } | undefined) {
+  if (!input) return false;
+  if (draft.type === "crop") {
+    const rect = draft.parameters.sourceRect;
+    return rect.x !== 0 || rect.y !== 0 || rect.width !== input.width || rect.height !== input.height;
+  }
+  if (draft.type === "resize") return draft.parameters.width !== input.width || draft.parameters.height !== input.height;
+  return true;
 }

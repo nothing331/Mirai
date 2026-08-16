@@ -7,10 +7,13 @@ import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 import type { EditBoundaryPolicy } from "@/shared/edit-boundary";
 import { useEditorStore } from "../store";
-import type { EditType, FakeScenario, SelectionMode, TransformInput } from "../types";
+import type { EditType, FakeScenario, GeometryEditType, SelectionMode, TransformInput } from "../types";
 import { TransformInspector } from "./TransformInspector";
 import { ExtendInspector } from "./ExtendInspector";
-import type { ProviderCapabilities } from "./workspace-types";
+import { SizePositionInspector } from "./SizePositionInspector";
+import { TextInspector } from "./TextInspector";
+import { WatermarkInspector } from "./WatermarkInspector";
+import type { ProviderCapabilities, WorkspaceWorkflow } from "./workspace-types";
 import type { WorkspacePhase } from "./workspace-phase";
 
 const editModes: Array<{ value: EditType; label: string; accessibleLabel: string }> = [
@@ -24,8 +27,8 @@ export function EditorInspector({
   phase,
   providerCapabilities,
   realRequestsUsed,
-  transformSelected,
-  extendSelected,
+  workflow,
+  onSelectGeometryEdit,
   onGenerate,
   onGenerateTransform,
   onPlanExtend,
@@ -36,8 +39,8 @@ export function EditorInspector({
   phase: WorkspacePhase;
   providerCapabilities: ProviderCapabilities | null;
   realRequestsUsed: number;
-  transformSelected: boolean;
-  extendSelected: boolean;
+  workflow: WorkspaceWorkflow;
+  onSelectGeometryEdit: (editType: GeometryEditType) => void;
   onGenerate: () => void;
   onGenerateTransform: (input: TransformInput) => Promise<boolean>;
   onPlanExtend: (input: import("../types").ExtendInput) => Promise<boolean>;
@@ -83,10 +86,13 @@ export function EditorInspector({
     );
   }
 
-  if (transformSelected) {
+  if (workflow.kind === "size-position") return <SizePositionInspector onSelectEdit={onSelectGeometryEdit} />;
+  if (workflow.kind === "text") return <TextInspector />;
+  if (workflow.kind === "watermark") return <WatermarkInspector />;
+  if (workflow.kind === "transform") {
     return <TransformInspector providerCapabilities={providerCapabilities} realRequestsUsed={realRequestsUsed} onGenerate={onGenerateTransform} onRetry={onRetry} onOpenDiagnostics={onOpenDiagnostics} />;
   }
-  if (extendSelected) return <ExtendInspector onPlan={onPlanExtend} onGenerate={onGenerateExtend} requestLimitReached={requestLimitReached} />;
+  if (workflow.kind === "extend") return <ExtendInspector onPlan={onPlanExtend} onGenerate={onGenerateExtend} requestLimitReached={requestLimitReached} />;
 
   if (phase === "preview") {
     return (

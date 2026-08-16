@@ -1,80 +1,92 @@
 "use client";
 
-import { Brush, Eraser, Expand, Hand, LassoSelect, PanelLeftClose, PanelLeftOpen, WandSparkles } from "lucide-react";
+import { Brush, Crop, Eraser, Expand, Hand, LassoSelect, PanelLeftClose, PanelLeftOpen, Stamp, Type, WandSparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEditorStore } from "../store";
 import type { Tool } from "../types";
+import type { WorkspaceWorkflow } from "./workspace-types";
 
-const tools: Array<{ value: Tool; label: string; shortcut: string; icon: typeof Brush }> = [
+const canvasTools: Array<{ value: Tool; label: string; shortcut: string; icon: typeof Brush }> = [
   { value: "lasso", label: "Lasso", shortcut: "L", icon: LassoSelect },
   { value: "brush", label: "Brush", shortcut: "B", icon: Brush },
   { value: "eraser", label: "Eraser", shortcut: "E", icon: Eraser },
   { value: "pan", label: "Hand", shortcut: "H", icon: Hand },
 ];
 
-export function ToolRail({ collapsed, disabled, transformSelected, extendSelected, onSelectTool, onSelectTransform, onSelectExtend, onToggleInspector }: { collapsed: boolean; disabled: boolean; transformSelected: boolean; extendSelected: boolean; onSelectTool: (tool: Tool) => void; onSelectTransform: () => void; onSelectExtend: () => void; onToggleInspector: () => void }) {
-  const tool = useEditorStore((state) => state.tool);
+const workflowTools: Array<{ kind: Exclude<WorkspaceWorkflow["kind"], "canvas">; label: string; shortcut?: string; icon: typeof Brush; testId?: string }> = [
+  { kind: "size-position", label: "Size & position", icon: Crop, testId: "open-size-position" },
+  { kind: "text", label: "Text", icon: Type, testId: "open-text" },
+  { kind: "watermark", label: "Watermark", icon: Stamp, testId: "open-watermark" },
+  { kind: "transform", label: "AI Transform", shortcut: "T", icon: WandSparkles, testId: "open-transform" },
+  { kind: "extend", label: "Extend", shortcut: "X", icon: Expand, testId: "open-extend" },
+];
+
+export function ToolRail({ collapsed, disabled, workflow, onSelectWorkflow, onToggleInspector }: {
+  collapsed: boolean;
+  disabled: boolean;
+  workflow: WorkspaceWorkflow;
+  onSelectWorkflow: (workflow: WorkspaceWorkflow) => void;
+  onToggleInspector: () => void;
+}) {
   const hasPendingPaint = useEditorStore((state) => Boolean(state.paintSession));
+  const hasPendingLocalDraft = useEditorStore((state) => Boolean(state.localDraft));
 
   return (
-    <nav className="relative z-30 flex h-12 items-center overflow-visible border-t border-line bg-[#e9e7df] md:h-auto md:flex-col md:border-r md:border-t-0" aria-label="Editor tools">
-      <div className="flex flex-1 items-center justify-center md:w-full md:flex-none md:flex-col md:py-2" role="radiogroup" aria-label="Selection tool">
-        {tools.map(({ value, label, shortcut, icon: Icon }) => (
-          <button
-            key={value}
-            type="button"
-            role="radio"
-            aria-checked={!transformSelected && !extendSelected && tool === value}
-            aria-label={label}
-            title={`${label} (${shortcut})`}
-            disabled={disabled}
-            className={cn(
-              "group relative grid size-11 place-items-center text-muted outline-none transition-[background-color,color,transform] hover:bg-white/70 hover:text-ink focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent disabled:opacity-30",
-              !transformSelected && !extendSelected && tool === value && "bg-ink text-acid hover:bg-ink hover:text-acid",
-            )}
-            onClick={() => onSelectTool(value)}
-          >
+    <nav className="relative z-30 flex h-12 items-center overflow-x-auto overflow-y-hidden border-t border-line bg-[#e9e7df] md:h-auto md:flex-col md:overflow-visible md:border-r md:border-t-0" aria-label="Editor tools">
+      <div className="flex items-center justify-center md:w-full md:flex-col md:py-2" role="radiogroup" aria-label="Canvas and direct editing tools">
+        {canvasTools.map(({ value, label, shortcut, icon: Icon }) => (
+          <RailButton key={value} label={label} shortcut={shortcut} selected={workflow.kind === "canvas" && workflow.tool === value} disabled={disabled} onClick={() => onSelectWorkflow({ kind: "canvas", tool: value })}>
             <Icon className="size-[17px]" />
-            {value === "brush" && hasPendingPaint && <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-acid ring-1 ring-ink" aria-label="Paint pending" />}
-            <ToolLabel label={label} shortcut={shortcut} />
-            <span className="sr-only">{shortcut}</span>
-          </button>
+            {value === "brush" && hasPendingPaint && <PendingDot label="Paint pending" />}
+          </RailButton>
+        ))}
+        <span className="mx-1 h-7 w-px shrink-0 bg-line md:mx-0 md:my-1 md:h-px md:w-7" aria-hidden="true" />
+        {workflowTools.map(({ kind, label, shortcut, icon: Icon, testId }) => (
+          <RailButton key={kind} testId={testId} label={label} shortcut={shortcut} selected={workflow.kind === kind} disabled={disabled} onClick={() => onSelectWorkflow({ kind } as WorkspaceWorkflow)}>
+            <Icon className="size-[17px]" />
+            {hasPendingLocalDraft && workflow.kind === kind && <PendingDot label="Local edit pending" />}
+          </RailButton>
         ))}
       </div>
-      <div className="border-line max-md:border-l md:w-full md:border-t md:py-1">
-        <button type="button" data-testid="open-extend" aria-label="Extend" aria-pressed={extendSelected} title="Extend (X)" disabled={disabled} className={cn("group relative grid size-11 place-items-center text-muted outline-none hover:bg-white/70 hover:text-ink focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent disabled:opacity-30 md:mx-auto", extendSelected && "bg-ink text-acid hover:bg-ink hover:text-acid")} onClick={onSelectExtend}>
-          <Expand className="size-[17px]" /><ToolLabel label="Extend" shortcut="X" /><span className="sr-only">X</span>
-        </button>
-        <button
-          type="button"
-          data-testid="open-transform"
-          aria-label="Transform"
-          aria-pressed={transformSelected}
-          title="Transform (T)"
-          disabled={disabled}
-          className={cn(
-            "group relative grid size-11 place-items-center text-muted outline-none transition-[background-color,color,transform] hover:bg-white/70 hover:text-ink focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent disabled:opacity-30 md:mx-auto",
-            transformSelected && "bg-ink text-acid hover:bg-ink hover:text-acid",
-          )}
-          onClick={onSelectTransform}
-        >
-          <WandSparkles className="size-[17px]" />
-          <ToolLabel label="Transform" shortcut="T" />
-          <span className="sr-only">T</span>
-        </button>
-      </div>
-      {tool !== "pan" && <button
+      {workflow.kind !== "canvas" || workflow.tool !== "pan" ? <button
         type="button"
-        className="group relative grid size-11 place-items-center text-muted hover:bg-white/70 hover:text-ink focus-visible:outline-2 focus-visible:outline-accent"
+        className="group relative ml-auto grid size-11 shrink-0 place-items-center text-muted hover:bg-white/70 hover:text-ink focus-visible:outline-2 focus-visible:outline-accent md:mb-1 md:ml-0 md:mt-1"
         aria-label={collapsed ? "Open inspector" : "Collapse inspector"}
         title={collapsed ? "Open inspector" : "Collapse inspector"}
         onClick={onToggleInspector}
       >
         {collapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
         <ToolLabel label={collapsed ? "Open inspector" : "Collapse inspector"} />
-      </button>}
+      </button> : null}
     </nav>
   );
+}
+
+function RailButton({ label, shortcut, selected, disabled, testId, onClick, children }: { label: string; shortcut?: string; selected: boolean; disabled: boolean; testId?: string; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      aria-label={label}
+      title={shortcut ? `${label} (${shortcut})` : label}
+      data-testid={testId}
+      disabled={disabled}
+      className={cn(
+        "group relative grid size-11 shrink-0 place-items-center text-muted outline-none transition-[background-color,color] hover:bg-white/70 hover:text-ink focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent disabled:opacity-30 md:mx-auto",
+        selected && "bg-ink text-acid hover:bg-ink hover:text-acid",
+      )}
+      onClick={onClick}
+    >
+      {children}
+      <ToolLabel label={label} shortcut={shortcut} />
+      {shortcut ? <span className="sr-only">{shortcut}</span> : null}
+    </button>
+  );
+}
+
+function PendingDot({ label }: { label: string }) {
+  return <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-acid ring-1 ring-ink" aria-label={label} />;
 }
 
 function ToolLabel({ label, shortcut }: { label: string; shortcut?: string }) {

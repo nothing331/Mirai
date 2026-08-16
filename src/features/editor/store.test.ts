@@ -451,4 +451,55 @@ describe("filled selection preview and acceptance", () => {
     expect(state.versions.some((version) => version.id === abandonedId)).toBe(false);
     expect(state.canRedo()).toBe(false);
   });
+
+  it("applies a crop directly as one masked operation with output-sized selection state", () => {
+    useEditorStore.getState().beginLocalDraft("crop");
+    const draft = useEditorStore.getState().localDraft!;
+    if (draft.type !== "crop") throw new Error("Expected crop draft");
+    useEditorStore.getState().updateLocalDraft({ ...draft, parameters: { ...draft.parameters, sourceRect: { x: 1, y: 0, width: 2, height: 1 } } });
+    expect(useEditorStore.getState().preview).toBeNull();
+    expect(useEditorStore.getState().applyLocalDraft()).toBe(true);
+    const state = useEditorStore.getState();
+    expect(state.operations).toHaveLength(1);
+    expect(state.operations[0]).toMatchObject({ type: "crop", method: "local", parameters: { sourceRect: { x: 1, y: 0, width: 2, height: 1 } } });
+    expect(state.operations[0].maskId).toEqual(expect.any(String));
+    expect(state.versions[1]).toMatchObject({ width: 2, height: 1 });
+    expect(state.selectionMask).toMatchObject({ width: 2, height: 1 });
+    expect(state.selectionMask?.data).toHaveLength(2);
+    expect(requestGenerativeCandidate).not.toHaveBeenCalled();
+  });
+
+  it("cancels a local draft without advancing history", () => {
+    useEditorStore.getState().beginLocalDraft("resize");
+    expect(useEditorStore.getState().localDraft?.type).toBe("resize");
+    expect(useEditorStore.getState().localDraftDirty).toBe(false);
+    useEditorStore.getState().discardLocalDraft();
+    expect(useEditorStore.getState().localDraft).toBeNull();
+    expect(useEditorStore.getState().localDraftDirty).toBe(false);
+    expect(useEditorStore.getState().versions).toHaveLength(1);
+    expect(useEditorStore.getState().operations).toHaveLength(0);
+  });
+
+  it("updates live text draft content without creating a preview or history", () => {
+    useEditorStore.getState().beginLocalDraft("text");
+    const draft = useEditorStore.getState().localDraft;
+    if (draft?.type !== "text") throw new Error("Expected text draft");
+    useEditorStore.getState().updateLocalDraft({ ...draft, parameters: { ...draft.parameters, content: "Visible immediately" } });
+    const state = useEditorStore.getState();
+    expect(state.localDraft?.type).toBe("text");
+    expect(state.localDraftDirty).toBe(true);
+    expect(state.localDraft?.parameters).toMatchObject({ content: "Visible immediately" });
+    expect(state.preview).toBeNull();
+    expect(state.versions).toHaveLength(1);
+    expect(state.operations).toHaveLength(0);
+  });
+
+  it("rotates into swapped dimensions and undo restores source-sized selection state", () => {
+    useEditorStore.getState().beginLocalDraft("rotate");
+    useEditorStore.getState().applyLocalDraft();
+    expect(useEditorStore.getState().versions[1]).toMatchObject({ width: 1, height: 3 });
+    expect(useEditorStore.getState().selectionMask).toMatchObject({ width: 1, height: 3 });
+    useEditorStore.getState().undo();
+    expect(useEditorStore.getState().selectionMask).toMatchObject({ width: 3, height: 1 });
+  });
 });

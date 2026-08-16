@@ -1,4 +1,4 @@
-import type { ImageVersion } from "./types";
+import type { ImageVersion, OverlayImageAsset } from "./types";
 
 /** Encodes immutable source pixels as a PNG data URL for browser display. */
 export function pixelsToDataUrl(pixels: Uint8ClampedArray, width: number, height: number): string {
@@ -39,6 +39,24 @@ export async function decodeImage(file: File): Promise<ImageVersion> {
   } finally {
     bitmap.close();
   }
+}
+
+/** Decodes a transparent PNG into an immutable source-resolution overlay asset. */
+export async function decodeOverlayImage(file: File): Promise<OverlayImageAsset> {
+  if (file.type !== "image/png") throw new Error("Upload a PNG logo so transparency is preserved.");
+  const bitmap = await createImageBitmap(file);
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) throw new Error("Canvas rendering is not available in this browser.");
+    context.drawImage(bitmap, 0, 0);
+    return {
+      id: crypto.randomUUID(), width: bitmap.width, height: bitmap.height, mediaType: "image/png", originalName: file.name,
+      pixels: new Uint8ClampedArray(context.getImageData(0, 0, bitmap.width, bitmap.height).data), dataUrl: canvas.toDataURL("image/png"),
+    };
+  } finally { bitmap.close(); }
 }
 
 /** Downloads the accepted browser version directly without replaying edits or changing dimensions. */

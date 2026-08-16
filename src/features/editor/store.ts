@@ -1,9 +1,11 @@
 import { create } from "zustand";
 import { GenerativeRequestError, requestGenerativeCandidate } from "./generative-client";
 import { pixelsToDataUrl } from "./image-data";
+import { cropPixels, flipPixels, resizePixels, rotatePixels } from "./local-transforms";
 import { cleanRasterMask, unionMasks } from "./mask-cleanup";
 import { createFullImageMask, createGenerativeProviderMask, createMask, fillPolygonMask, maskHasSelection, paintMask } from "./mask";
 import { monochromePixels } from "./monochrome";
+import { renderTextOverlay, renderWatermarkOverlay } from "./overlay-renderer";
 import { compositePaintOverlay, createPaintOverlay, paintOverlayMask, paintOverlayStroke } from "./paint";
 import { recolorPixels } from "./recolor";
 import { cleanLassoContour } from "./selection-geometry";
@@ -13,7 +15,7 @@ import { requestExtendCandidate, requestExtendPlan } from "./extend-client";
 import type { EditBoundaryPolicy } from "@/shared/edit-boundary";
 import { solveSmartReframe, type ExtendSceneAnalysis } from "@/shared/extend-plan";
 import { getExtendPreset } from "@/shared/extend-presets";
-import type { EditOperation, EditPreview, EditType, ExtendDraftState, ExtendInput, FakeScenario, GenerativePreviewState, GenerativeRequestSnapshot, ImageVersion, LassoVisualization, MaskAsset, PaintSession, ProcessingMask, SelectionDiagnostics, SelectionMode, SourcePoint, Tool, TransformInput, Viewport } from "./types";
+import type { CropRatio, EditOperation, EditPreview, EditType, ExtendDraftState, ExtendInput, FakeScenario, GenerativePreviewState, GenerativeRequestSnapshot, GeometryEditType, ImageVersion, LassoVisualization, LocalEditDraft, MaskAsset, OverlayImageAsset, PaintSession, ProcessingMask, SelectionDiagnostics, SelectionMode, SourcePoint, Tool, TransformInput, Viewport } from "./types";
 
 interface EditorState {
   originalVersionId: string | null;
@@ -23,7 +25,10 @@ interface EditorState {
   versions: ImageVersion[];
   operations: EditOperation[];
   maskAssets: MaskAsset[];
+  overlayAssets: OverlayImageAsset[];
   preview: EditPreview | null;
+  localDraft: LocalEditDraft | null;
+  localDraftDirty: boolean;
   editType: EditType;
   prompt: string;
   fakeScenario: FakeScenario;
@@ -46,7 +51,7 @@ interface EditorState {
   error: string | null;
   lastRequestId: string | null;
   loadImage: (version: ImageVersion) => void;
-  restoreProject: (project: { id: string; name: string; originalVersionId: string; currentVersionId: string; versions: ImageVersion[]; operations: EditOperation[]; maskAssets: MaskAsset[] }) => void;
+  restoreProject: (project: { id: string; name: string; originalVersionId: string; currentVersionId: string; versions: ImageVersion[]; operations: EditOperation[]; maskAssets: MaskAsset[]; overlayAssets?: OverlayImageAsset[] }) => void;
   setProjectName: (name: string) => void;
   setViewport: (viewport: Viewport) => void;
   requestViewReset: () => void;
@@ -66,6 +71,11 @@ interface EditorState {
   applyPaintStroke: (points: SourcePoint[], erase?: boolean) => void;
   discardPaintSession: () => void;
   commitPaintSession: () => boolean;
+  beginLocalDraft: (type: GeometryEditType | "text" | "watermark") => void;
+  updateLocalDraft: (draft: LocalEditDraft) => void;
+  discardLocalDraft: () => void;
+  addOverlayAsset: (asset: OverlayImageAsset) => void;
+  applyLocalDraft: () => boolean;
   createPreview: () => boolean;
   requestGenerativePreview: () => Promise<boolean>;
   requestTransformPreview: (input: TransformInput) => Promise<boolean>;
@@ -100,6 +110,71 @@ const initialControls = {
 const idleGenerativeState: GenerativePreviewState = { status: "idle", snapshot: null, error: null, retryable: false };
 const idleExtendState: ExtendDraftState = { status: "idle", input: null, analysis: null, plan: null, error: null };
 
+function changedPixelMask(input: ImageVersion, outputPixels: Uint8ClampedArray): ProcessingMask {
+  const mask = createMask(input.width, input.height);
+  for (let pixel = 0; pixel < input.width * input.height; pixel += 1) {
+    const channel = pixel * 4;
+    if (
+      input.pixels[channel] !== outputPixels[channel]
+      || input.pixels[channel + 1] !== outputPixels[channel + 1]
+      || input.pixels[channel + 2] !== outputPixels[channel + 2]
+      || input.pixels[channel + 3] !== outputPixels[channel + 3]
+    ) mask.data[pixel] = 255;
+  }
+  return mask;
+}
+
+function pixelsEqual(left: Uint8ClampedArray, right: Uint8ClampedArray) {
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) if (left[index] !== right[index]) return false;
+  return true;
+}
+
+function localDraftOperation(draft: LocalEditDraft, inputVersionId: string, outputVersionId: string, maskId: string): EditOperation {
+  const base = { id: crypto.randomUUID(), inputVersionId, outputVersionId, maskId, method: "local" as const, status: "accepted" as const };
+  switch (draft.type) {
+    case "crop": return { ...base, type: "crop", parameters: draft.parameters };
+    case "resize": return { ...base, type: "resize", parameters: draft.parameters };
+    case "rotate": return { ...base, type: "rotate", parameters: draft.parameters };
+    case "flip": return { ...base, type: "flip", parameters: draft.parameters };
+    case "text": return { ...base, type: "text", parameters: draft.parameters };
+    case "watermark": return { ...base, type: "watermark", parameters: draft.parameters };
+  }
+}
+
+function appendAcceptedEdit(
+  state: EditorState,
+  input: ImageVersion,
+  output: ImageVersion,
+  operation: EditOperation,
+  mask: MaskAsset,
+  preserveSelection = false,
+): Partial<EditorState> {
+  const inputIndex = state.versions.findIndex((version) => version.id === input.id);
+  const retainedVersions = state.versions.slice(0, inputIndex + 1);
+  const retainedVersionIds = new Set(retainedVersions.map((version) => version.id));
+  const retainedOperations = state.operations.filter((item) => item.outputVersionId && retainedVersionIds.has(item.outputVersionId));
+  const retainedMaskIds = new Set(retainedOperations.map((item) => item.maskId));
+  return {
+    versions: [...retainedVersions, output],
+    operations: [...retainedOperations, operation],
+    maskAssets: [...state.maskAssets.filter((item) => retainedMaskIds.has(item.id)), mask],
+    currentVersionId: output.id,
+    preview: null,
+    localDraft: null,
+    localDraftDirty: false,
+    selectionMask: preserveSelection ? state.selectionMask : createMask(output.width, output.height),
+    selectionId: preserveSelection ? state.selectionId : crypto.randomUUID(),
+    selectionDiagnostics: preserveSelection ? state.selectionDiagnostics : null,
+    lassoVisualization: preserveSelection ? state.lassoVisualization : null,
+    paintSession: null,
+    generativeState: idleGenerativeState,
+    extendState: idleExtendState,
+    viewResetKey: state.viewResetKey + (input.width !== output.width || input.height !== output.height ? 1 : 0),
+    error: null,
+  };
+}
+
 /** Owns one filled source-resolution selection and separates previews from accepted history. */
 export const useEditorStore = create<EditorState>((set, get) => ({
   originalVersionId: null,
@@ -109,7 +184,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   versions: [],
   operations: [],
   maskAssets: [],
+  overlayAssets: [],
   preview: null,
+  localDraft: null,
+  localDraftDirty: false,
   generativeState: idleGenerativeState,
   extendState: idleExtendState,
   extendAnalysisCache: {},
@@ -127,7 +205,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     versions: [version],
     operations: [],
     maskAssets: [],
+    overlayAssets: [],
     preview: null,
+    localDraft: null,
+    localDraftDirty: false,
     generativeState: idleGenerativeState,
     extendState: idleExtendState,
     extendAnalysisCache: {},
@@ -151,7 +232,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       versions: project.versions,
       operations: project.operations,
       maskAssets: project.maskAssets,
+      overlayAssets: project.overlayAssets ?? [],
       preview: null,
+      localDraft: null,
+      localDraftDirty: false,
       generativeState: idleGenerativeState,
       extendState: idleExtendState,
       extendAnalysisCache: {},
@@ -234,7 +318,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     error: null,
   } : {}),
   applyPaintStroke: (points, erase = false) => set((state) => {
-    if (points.length === 0 || !state.currentVersionId) return {};
+    if (points.length === 0 || !state.currentVersionId || state.localDraft) return {};
     const current = state.versions.find((version) => version.id === state.currentVersionId);
     if (!current || (erase && !state.paintSession)) return {};
     const session = state.paintSession?.baseVersionId === current.id
@@ -275,9 +359,81 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     });
     return get().acceptPreview();
   },
+  beginLocalDraft: (type) => {
+    const state = get();
+    const input = state.versions.find((version) => version.id === state.currentVersionId);
+    if (!input) return;
+    if (state.paintSession) {
+      set({ error: "Apply or discard the pending paint before starting another local edit." });
+      return;
+    }
+    const id = crypto.randomUUID();
+    let localDraft: LocalEditDraft;
+    if (type === "crop") localDraft = { id, inputVersionId: input.id, type, parameters: { sourceRect: { x: 0, y: 0, width: input.width, height: input.height }, ratio: "free" as CropRatio } };
+    else if (type === "resize") localDraft = { id, inputVersionId: input.id, type, parameters: { width: input.width, height: input.height, preserveAspectRatio: true, preventUpscale: false } };
+    else if (type === "rotate") localDraft = { id, inputVersionId: input.id, type, parameters: { quarterTurns: 1 } };
+    else if (type === "flip") localDraft = { id, inputVersionId: input.id, type, parameters: { axis: "horizontal" } };
+    else if (type === "text") localDraft = { id, inputVersionId: input.id, type, parameters: { content: "Your text", x: input.width * 0.15, y: input.height * 0.42, width: input.width * 0.7, fontFamily: "Manrope", fontSize: Math.max(18, Math.round(input.width * 0.07)), fontWeight: 700, color: "#ffffff", opacity: 1, rotation: 0, align: "center", backgroundColor: null, padding: Math.max(4, Math.round(input.width * 0.01)) } };
+    else localDraft = { id, inputVersionId: input.id, type, parameters: { source: "text", content: "© Mirai", overlayAssetId: null, x: input.width * 0.68, y: input.height * 0.86, width: input.width * 0.26, fontFamily: "Manrope", fontSize: Math.max(12, Math.round(input.width * 0.028)), color: "#ffffff", opacity: 0.55, rotation: 0, anchor: "south-east", margin: Math.max(8, Math.round(input.width * 0.02)) } };
+    set({ localDraft, localDraftDirty: type === "rotate" || type === "flip", preview: null, generativeState: idleGenerativeState, extendState: idleExtendState, error: null });
+  },
+  updateLocalDraft: (localDraft) => set((state) => state.currentVersionId === localDraft.inputVersionId ? { localDraft, localDraftDirty: true, error: null } : {}),
+  discardLocalDraft: () => set({ localDraft: null, localDraftDirty: false, error: null }),
+  addOverlayAsset: (asset) => set((state) => ({ overlayAssets: [...state.overlayAssets.filter((item) => item.id !== asset.id), asset] })),
+  applyLocalDraft: () => {
+    const state = get();
+    const draft = state.localDraft;
+    const input = state.versions.find((version) => version.id === draft?.inputVersionId);
+    if (!draft || !input || state.currentVersionId !== draft.inputVersionId) {
+      set({ localDraft: null, localDraftDirty: false, error: "The local edit is no longer based on the current image." });
+      return false;
+    }
+    try {
+      let rendered;
+      if (draft.type === "crop") rendered = cropPixels(input, draft.parameters.sourceRect);
+      else if (draft.type === "resize") {
+        const scale = draft.parameters.preventUpscale ? Math.min(1, input.width / draft.parameters.width, input.height / draft.parameters.height) : 1;
+        rendered = resizePixels(input, Math.max(1, Math.round(draft.parameters.width * scale)), Math.max(1, Math.round(draft.parameters.height * scale)));
+      } else if (draft.type === "rotate") rendered = rotatePixels(input, draft.parameters.quarterTurns);
+      else if (draft.type === "flip") rendered = flipPixels(input, draft.parameters.axis);
+      else if (draft.type === "text") rendered = renderTextOverlay(input, draft.parameters);
+      else rendered = renderWatermarkOverlay(input, draft.parameters, state.overlayAssets.find((asset) => asset.id === draft.parameters.overlayAssetId) ?? null);
+
+      if (rendered.width === input.width && rendered.height === input.height && pixelsEqual(input.pixels, rendered.pixels)) {
+        set({ error: "The local edit did not change any pixels." });
+        return false;
+      }
+
+      const outputId = crypto.randomUUID();
+      const output: ImageVersion = {
+        ...input,
+        id: outputId,
+        parentVersionId: input.id,
+        width: rendered.width,
+        height: rendered.height,
+        mediaType: "image/png",
+        pixels: new Uint8ClampedArray(rendered.pixels),
+        dataUrl: pixelsToDataUrl(rendered.pixels, rendered.width, rendered.height),
+      };
+      const effectiveMask = rendered.width === input.width && rendered.height === input.height && (draft.type === "text" || draft.type === "watermark")
+        ? changedPixelMask(input, rendered.pixels)
+        : createFullImageMask(input.width, input.height);
+      const mask: MaskAsset = { id: crypto.randomUUID(), ...effectiveMask };
+      const operation = localDraftOperation(draft, input.id, outputId, mask.id);
+      set(appendAcceptedEdit(state, input, output, operation, mask));
+      return true;
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : "The local edit could not be applied." });
+      return false;
+    }
+  },
   createPreview: () => {
     const state = get();
     const input = state.versions.find((version) => version.id === state.currentVersionId);
+    if (state.localDraft) {
+      set({ error: "Apply or discard the current local edit before creating another edit." });
+      return false;
+    }
     if (state.paintSession) {
       set({ error: "Apply or discard the pending paint before creating another edit." });
       return false;
@@ -308,6 +464,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   requestGenerativePreview: async () => {
     const state = get();
     const input = state.versions.find((version) => version.id === state.currentVersionId);
+    if (state.localDraft) {
+      set({ error: "Apply or discard the current local edit before generating an edit." });
+      return false;
+    }
     if (state.paintSession) {
       set({ error: "Apply or discard the pending paint before generating an edit." });
       return false;
@@ -338,6 +498,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   requestTransformPreview: async (transformInput) => {
     const state = get();
     const input = state.versions.find((version) => version.id === state.currentVersionId);
+    if (state.localDraft) {
+      set({ error: "Apply or discard the current local edit before transforming the image." });
+      return false;
+    }
     if (state.paintSession) {
       set({ error: "Apply or discard the pending paint before transforming the image." });
       return false;
@@ -391,8 +555,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   planExtend: async (extendInput) => {
     const state = get();
     const input = state.versions.find((version) => version.id === state.currentVersionId);
-    if (!input || state.paintSession) {
-      set({ error: state.paintSession ? "Apply or discard the pending paint before extending the image." : "Open an image before extending it." });
+    if (!input || state.paintSession || state.localDraft) {
+      set({ error: state.localDraft ? "Apply or discard the current local edit before extending the image." : state.paintSession ? "Apply or discard the pending paint before extending the image." : "Open an image before extending it." });
       return false;
     }
     const normalized: ExtendInput = { ...extendInput, userPrompt: extendInput.userPrompt.trim() };
@@ -481,20 +645,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         : preview.type === "transform"
           ? { id: crypto.randomUUID(), inputVersionId: input.id, outputVersionId: outputId, maskId: preview.mask.id, type: "transform", parameters: preview.parameters, method: "local", status: "accepted" }
           : { id: crypto.randomUUID(), inputVersionId: input.id, outputVersionId: outputId, maskId: preview.mask.id, type: "recolor", parameters: preview.parameters, method: "local", status: "accepted" };
-    const inputIndex = state.versions.findIndex((version) => version.id === input.id);
-    const retainedVersions = state.versions.slice(0, inputIndex + 1);
-    const retainedVersionIds = new Set(retainedVersions.map((version) => version.id));
-    const retainedOperations = state.operations.filter((item) => item.outputVersionId && retainedVersionIds.has(item.outputVersionId));
-    const retainedMaskIds = new Set(retainedOperations.map((item) => item.maskId));
     const preserveSelection = preview.type === "paint";
-    set({
-      versions: [...retainedVersions, output], operations: [...retainedOperations, operation],
-      maskAssets: [...state.maskAssets.filter((mask) => retainedMaskIds.has(mask.id)), preview.mask], currentVersionId: outputId, preview: null,
-      selectionMask: preserveSelection ? state.selectionMask : createMask(output.width, output.height), selectionId: preserveSelection ? state.selectionId : crypto.randomUUID(),
-      selectionDiagnostics: preserveSelection ? state.selectionDiagnostics : null, lassoVisualization: preserveSelection ? state.lassoVisualization : null,
-      paintSession: null,
-      generativeState: idleGenerativeState, extendState: idleExtendState, error: null,
-    });
+    set(appendAcceptedEdit(state, input, output, operation, preview.mask, preserveSelection));
     return true;
   },
   discardPreview: () => set({ preview: null, generativeState: idleGenerativeState, error: null }),
@@ -512,7 +664,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const currentIndex = state.versions.findIndex((version) => version.id === state.currentVersionId);
     if (currentIndex <= 0) return false;
     const target = state.versions[currentIndex - 1];
-    set({ currentVersionId: target.id, preview: null, paintSession: null, generativeState: idleGenerativeState, extendState: idleExtendState, selectionMask: createMask(target.width, target.height), selectionId: crypto.randomUUID(), selectionDiagnostics: null, lassoVisualization: null, error: null });
+    set((current) => ({ currentVersionId: target.id, preview: null, localDraft: null, localDraftDirty: false, paintSession: null, generativeState: idleGenerativeState, extendState: idleExtendState, selectionMask: createMask(target.width, target.height), selectionId: crypto.randomUUID(), selectionDiagnostics: null, lassoVisualization: null, viewResetKey: current.viewResetKey + 1, error: null }));
     return true;
   },
   redo: () => {
@@ -520,13 +672,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const currentIndex = state.versions.findIndex((version) => version.id === state.currentVersionId);
     if (currentIndex < 0 || currentIndex >= state.versions.length - 1) return false;
     const target = state.versions[currentIndex + 1];
-    set({ currentVersionId: target.id, preview: null, paintSession: null, generativeState: idleGenerativeState, extendState: idleExtendState, selectionMask: createMask(target.width, target.height), selectionId: crypto.randomUUID(), selectionDiagnostics: null, lassoVisualization: null, error: null });
+    set((current) => ({ currentVersionId: target.id, preview: null, localDraft: null, localDraftDirty: false, paintSession: null, generativeState: idleGenerativeState, extendState: idleExtendState, selectionMask: createMask(target.width, target.height), selectionId: crypto.randomUUID(), selectionDiagnostics: null, lassoVisualization: null, viewResetKey: current.viewResetKey + 1, error: null }));
     return true;
   },
   reset: () => set((state) => {
     const original = state.versions.find((version) => version.id === state.originalVersionId);
     return original ? {
-      currentVersionId: original.id, versions: [original], operations: [], maskAssets: [], preview: null, paintSession: null, generativeState: idleGenerativeState,
+      currentVersionId: original.id, versions: [original], operations: [], maskAssets: [], overlayAssets: [], preview: null, localDraft: null, localDraftDirty: false, paintSession: null, generativeState: idleGenerativeState,
       selectionMask: createMask(original.width, original.height), selectionId: crypto.randomUUID(), extendState: idleExtendState,
       extendAnalysisCache: {},
       selectionDiagnostics: null, lassoVisualization: null,
