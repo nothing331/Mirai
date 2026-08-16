@@ -1,10 +1,10 @@
 # Editable AI Image Editor
 
-An image editor where users can make focused local edits or transform the complete image, review every proposal, and retain reversible history.
+An image editor where users can manipulate deterministic drafts directly on the canvas, review generated proposals, and retain reversible history.
 
 ## Status
 
-The finished v0.1 editor supports Lasso-based selection and AI editing, direct color painting with draft-only erasing, local recoloring, generative Remove/Replace/Restyle previews, preset-driven full-image Transform, immutable linear undo/redo, durable local projects, diagnostics, and original-resolution PNG/JPEG export. A deterministic fake provider is enabled by default, so the complete workflow runs without an API key.
+The finished v0.1 editor supports Lasso-based selection and AI editing, direct color painting with draft-only erasing, live Crop/Resize/Rotate/Flip, draggable text and text/PNG watermarks, local recoloring, generative Remove/Replace/Restyle previews, preset-driven full-image Transform, immutable linear undo/redo, durable local projects, diagnostics, and original-resolution PNG/JPEG export. A deterministic fake provider is enabled by default, so the complete workflow runs without an API key.
 
 Documentation:
 
@@ -22,6 +22,8 @@ npm run dev
 Open `http://localhost:3000`. Saved project metadata is stored in `.local-edit/projects.sqlite`; immutable accepted images and masks are stored under `.local-edit/assets/`. Add `.local-edit/` to backups if you want to retain local projects between machines.
 
 Mirai keeps direct canvas tools in the left rail and shows only the active workflow in the adjacent inspector. Lasso owns Draw/Add/Subtract selection and all selection-based generation. Brush paints a temporary color layer; Eraser removes only that pending paint; Apply records the complete paint session as one reversible edit. Apply before saving or reloading because pending paint is not persisted. Hand pans the image and hides the inspector because it has no settings. Use `L`, `B`, `E`, and `H` for those tools, and `Cmd/Ctrl + Z` or `Cmd/Ctrl + Shift + Z` for undo and redo.
+
+Choose **Size & position**, **Text**, or **Watermark** in the rail for deterministic editing without a comparison screen. Inspector changes appear immediately on the canvas. Crop, text, and watermark objects can be dragged; text and watermark expose resize/rotation handles; arrow keys nudge the active object by one source pixel or ten with Shift. **Apply** creates one immutable operation/version, while **Discard**, Escape, or Delete removes only the pending draft.
 
 Choose **Transform** in the left tool rail, or press `T`, to open its options in the extended sidebar and reinterpret the complete image without drawing a selection. Choose Monochrome, Sketch, Old Cartoon, Cinematic, Anime Theme, or a custom direction, optionally refine it with a prompt, and select a preservation level. Faithful is the default. Plain Monochrome is processed locally without a provider call; other transformations use source planning, one image request, and post-generation semantic validation. Hover or focus any rail icon to see its full tool name and shortcut.
 

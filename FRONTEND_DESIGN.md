@@ -14,15 +14,21 @@ When making a design decision, prefer:
 2. One clear responsibility per surface.
 3. Visible state over explanatory prose.
 4. Borders, contrast, and spacing over floating cards.
-5. Reversible review before commitment.
+5. Reversible review for generated proposals and reversible live drafts for deterministic edits.
 6. Familiar interaction behavior with a distinctive visual treatment.
 
 ## Product interaction model
 
-The primary workflow is:
+Generated edits use:
 
 ```text
 Open image → choose tool → configure in inspector → act on canvas or generate → review → accept or discard
+```
+
+Direct deterministic edits use:
+
+```text
+Open image → choose tool → configure and manipulate live on canvas → apply or discard
 ```
 
 The shell has five stable regions:
@@ -44,6 +50,7 @@ The rail chooses the workflow; the inspector configures it; the canvas performs 
 - Eraser corrects pending paint only.
 - Hand owns navigation and removes the inspector because it has no settings.
 - Transform is image-wide but behaves as a first-class rail selection; its presets and controls live in the inspector.
+- Size & position, Text, and Watermark are direct rail workflows. Their inspector settings update a source-space canvas draft immediately and their Apply action creates one accepted version without opening comparison.
 - Every icon-only rail control must reveal its full name on hover and keyboard focus. Show its shortcut when one exists.
 - Selecting a tool must not generate pixels, accept history, or trigger an external request by itself.
 
@@ -173,7 +180,7 @@ Use verbs that describe the immediate result: “Generate preview,” “Apply p
 
 ### Review
 
-Review is a distinct dark stage owned by the canvas. Show the comparison at the largest practical size. Accept, Discard, and feature-specific adjustment controls live with the preview. Fidelity or scope warnings must remain adjacent to those decisions.
+Review is a distinct dark stage owned by the canvas for generated proposals and explicitly reviewable local operations such as selection recolor. Show the comparison at the largest practical size. Accept, Discard, and feature-specific adjustment controls live with the preview. Fidelity or scope warnings must remain adjacent to those decisions. Do not route directly manipulated Text, Watermark, Crop, Resize, Rotate, or Flip drafts through this stage; they remain visible on the ordinary canvas and use Apply/Discard in the inspector.
 
 ## Motion
 

@@ -27,6 +27,7 @@ export function CanvasFrame({ busyAction, onUpload, extendSelected, onAdjustTran
     currentVersionId: editor.currentVersionId,
     operations: editor.operations,
     preview: editor.preview,
+    localDraft: editor.localDraft,
     selectionMask: editor.selectionMask,
     color: editor.color,
     viewResetKey: editor.viewResetKey,
@@ -78,7 +79,7 @@ export function CanvasFrame({ busyAction, onUpload, extendSelected, onAdjustTran
         <div className="flex min-w-0 items-center gap-3">
           <span className="truncate">{state.currentVersion ? `${state.currentVersion.width} × ${state.currentVersion.height}px` : "Canvas"}</span>
           {state.currentVersion && <span className="hidden sm:inline">{Math.round(state.viewport.scale * 100)}%</span>}
-          {state.currentVersion && <span className="hidden lg:inline">{state.tool}</span>}
+          {state.currentVersion && <span className="hidden lg:inline">{state.localDraft?.type ?? state.tool}</span>}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {state.preview && (

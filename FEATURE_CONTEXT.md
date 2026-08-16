@@ -68,6 +68,30 @@ Keep entries focused on current behavior. Link to project-wide decisions instead
 
 **Code and verification.** `src/features/editor/paint.ts`, `src/features/editor/store.ts`, `src/features/editor/EditorCanvas.tsx`, `src/features/editor/workspace/EditorInspector.tsx`, adjacent unit tests, and `e2e/editor.spec.ts`.
 
+## Direct size and position
+
+**Outcome.** A user can crop, resize, rotate, or flip the current accepted image while seeing the result directly on the ordinary canvas. Crop exposes a source-space frame with a shield, grid, draggable body, and transform handles. These operations never open the proposal-comparison stage.
+
+**Working flow.** Selecting Size & position creates one temporary local draft based on the current immutable version. Inspector fields and canvas gestures update the same discriminated draft. Apply runs the deterministic pixel processor once, creates an input-sized effective mask, and routes one accepted operation and one immutable output version through shared history acceptance. Discard clears the draft without changing history. Dimension-changing Apply resets the fitted viewport and selection dimensions.
+
+**Ownership and rules.** Geometry and overlay parameters remain in source-image coordinates. `local-transforms.ts` owns pixel mapping; the store owns draft validity, processing, mask creation, and history; the canvas and inspector collect intent only. A pending paint or local draft must be applied or discarded before another editing workflow begins. Resize may resample the complete image; crop, rotate, and flip never call a provider.
+
+**Failures and limits.** Invalid or stale drafts fail without advancing history. Crop is rectangular, rotation is limited to quarter turns, and resize is deterministic bitmap resampling rather than AI upscaling. Applied geometry is flattened into an immutable version and adjusted later through Undo or a new operation.
+
+**Code and verification.** `src/features/editor/local-transforms.ts`, `src/features/editor/EditorCanvas.tsx`, `src/features/editor/workspace/SizePositionInspector.tsx`, `src/features/editor/store.ts`, `src/features/editor/local-transforms.test.ts`, `src/features/editor/store.test.ts`, and `e2e/editor.spec.ts`.
+
+## Live text and watermark overlays
+
+**Outcome.** Text appears on the image as the user types. Text and text/PNG watermarks can be dragged with a grab cursor, resized and rotated with canvas handles, nudged with arrow keys, positioned through watermark anchors, applied as one reversible edit, or discarded without history.
+
+**Working flow.** Text and Watermark rail selections create a source-space local draft. Inspector changes update the Konva node immediately; pointer movement is visible inside Konva and commits source coordinates on gesture completion. Dragging an anchored watermark changes it to free positioning. Apply uses the shared overlay geometry and browser raster renderer, derives an exact changed-pixel mask, and creates one accepted operation/version without creating an `EditPreview`. Uploaded PNG watermark assets are persisted with the project so accepted operation references remain inspectable.
+
+**Ownership and rules.** `TextOverlayParameters` and `WatermarkParameters` are application-owned contracts. UI code maps them explicitly to Konva properties rather than spreading provider- or renderer-specific attributes. The store validates the draft against its immutable input and owns Apply. Pixels outside the derived overlay mask remain byte-identical. Generated-edit comparison behavior is unaffected.
+
+**Failures and limits.** Empty text and missing PNG assets cannot be applied. Direct drafts are temporary and are not saved independently; Apply flattens the overlay into an immutable image version. Repositioning an already applied overlay therefore requires Undo or another edit rather than persistent editable layers.
+
+**Code and verification.** `src/features/editor/overlay-renderer.ts`, `src/features/editor/image-data.ts`, `src/features/editor/EditorCanvas.tsx`, `src/features/editor/workspace/TextInspector.tsx`, `src/features/editor/workspace/WatermarkInspector.tsx`, `src/features/editor/store.ts`, persistence clients/repository, `src/features/editor/store.test.ts`, and `e2e/editor.spec.ts`.
+
 ## Image-first workspace shell
 
 **Outcome.** A user can operate Mirai as an image editor rather than a numbered form: direct tools remain in a compact rail, the active workflow occupies one contextual inspector, global commands stay in the header, and the canvas remains the visual anchor.

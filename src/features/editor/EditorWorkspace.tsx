@@ -14,7 +14,7 @@ import { EditorInspector } from "./workspace/EditorInspector";
 import { ToolRail } from "./workspace/ToolRail";
 import { WorkspaceHeader } from "./workspace/WorkspaceHeader";
 import { deriveWorkspacePhase } from "./workspace/workspace-phase";
-import type { BusyAction, ExportFormat, ProviderCapabilities } from "./workspace/workspace-types";
+import type { BusyAction, ExportFormat, ProviderCapabilities, WorkspaceWorkflow } from "./workspace/workspace-types";
 import type { Tool, TransformInput } from "./types";
 
 /** Coordinates project I/O and provider authorization around the editor's domain-owned state. */
@@ -22,6 +22,8 @@ export function EditorWorkspace() {
   const editor = useEditorStore(useShallow((state) => ({
     currentVersionId: state.currentVersionId,
     preview: state.preview,
+    localDraft: state.localDraft,
+    paintSession: state.paintSession,
     generativeState: state.generativeState,
     selectionMask: state.selectionMask,
     editType: state.editType,
@@ -32,6 +34,7 @@ export function EditorWorkspace() {
     restoreProject: state.restoreProject,
     setTool: state.setTool,
     setError: state.setError,
+    beginLocalDraft: state.beginLocalDraft,
     createPreview: state.createPreview,
     requestGenerativePreview: state.requestGenerativePreview,
     requestTransformPreview: state.requestTransformPreview,
@@ -49,29 +52,34 @@ export function EditorWorkspace() {
   const [savedProjects, setSavedProjects] = useState<SavedProjectSummary[]>([]);
   const [exportFormat, setExportFormat] = useState<ExportFormat>("image/png");
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
-  const [transformSelected, setTransformSelected] = useState(false);
-  const [extendSelected, setExtendSelected] = useState(false);
+  const [workflow, setWorkflow] = useState<WorkspaceWorkflow>(() => ({ kind: "canvas", tool: useEditorStore.getState().tool }));
   const [inspectorCollapsed, setInspectorCollapsed] = useState(() => !useEditorStore.getState().currentVersionId);
   const phase = deriveWorkspacePhase({ hasImage: Boolean(editor.currentVersionId), preview: editor.preview, generativeState: editor.generativeState, selectionMask: editor.selectionMask });
 
-  const selectTool = useCallback((tool: Tool) => {
-    editor.setTool(tool);
-    setTransformSelected(false);
-    setExtendSelected(false);
-    setInspectorCollapsed(tool === "pan");
-  }, [editor]);
+  const selectWorkflow = useCallback((next: WorkspaceWorkflow) => {
+    if (editor.localDraft && workflow.kind !== next.kind) {
+      editor.setError(`Apply or discard the current ${editor.localDraft.type} edit before switching tools.`);
+      return;
+    }
+    if (editor.paintSession && (next.kind !== "canvas" || (next.tool !== "brush" && next.tool !== "eraser"))) {
+      editor.setError("Apply or discard the pending paint before switching workflows.");
+      return;
+    }
+    if (next.kind === "canvas") {
+      editor.setTool(next.tool);
+      setInspectorCollapsed(next.tool === "pan");
+    } else {
+      setInspectorCollapsed(false);
+      if (!editor.localDraft && next.kind === "size-position") editor.beginLocalDraft("crop");
+      if (!editor.localDraft && next.kind === "text") editor.beginLocalDraft("text");
+      if (!editor.localDraft && next.kind === "watermark") editor.beginLocalDraft("watermark");
+    }
+    setWorkflow(next);
+  }, [editor, workflow.kind]);
 
-  const selectTransform = useCallback(() => {
-    setTransformSelected(true);
-    setExtendSelected(false);
-    setInspectorCollapsed(false);
-  }, []);
-
-  const selectExtend = useCallback(() => {
-    setExtendSelected(true);
-    setTransformSelected(false);
-    setInspectorCollapsed(false);
-  }, []);
+  const selectTool = useCallback((tool: Tool) => selectWorkflow({ kind: "canvas", tool }), [selectWorkflow]);
+  const selectTransform = useCallback(() => selectWorkflow({ kind: "transform" }), [selectWorkflow]);
+  const selectExtend = useCallback(() => selectWorkflow({ kind: "extend" }), [selectWorkflow]);
 
   useEffect(() => {
     fetch("/api/image-edits").then((response) => response.json()).then((capabilities: ProviderCapabilities) => setProviderCapabilities(capabilities)).catch(() => setProviderCapabilities(null));
@@ -197,8 +205,7 @@ export function EditorWorkspace() {
     editor.setError(null);
     try {
       editor.loadImage(await decodeImage(file));
-      setTransformSelected(false);
-      setExtendSelected(false);
+      setWorkflow({ kind: "canvas", tool: "lasso" });
       setInspectorCollapsed(false);
       setRealRequestsUsed(0);
       sessionStorage.removeItem("local-edit-real-requests");
@@ -227,8 +234,7 @@ export function EditorWorkspace() {
     setBusyAction("open");
     try {
       editor.restoreProject(await openSavedProject(id));
-      setTransformSelected(false);
-      setExtendSelected(false);
+      setWorkflow({ kind: "canvas", tool: "lasso" });
       setInspectorCollapsed(false);
     } catch (error) {
       editor.setError(error instanceof Error ? error.message : "The project could not be opened.");
@@ -258,11 +264,8 @@ export function EditorWorkspace() {
             <ToolRail
               collapsed={inspectorCollapsed}
               disabled={!editor.currentVersionId || phase === "processing" || phase === "preview"}
-              transformSelected={transformSelected}
-              extendSelected={extendSelected}
-              onSelectTool={selectTool}
-              onSelectTransform={selectTransform}
-              onSelectExtend={selectExtend}
+              workflow={workflow}
+              onSelectWorkflow={selectWorkflow}
               onToggleInspector={() => setInspectorCollapsed((current) => !current)}
             />
             {!inspectorCollapsed && (
@@ -271,8 +274,7 @@ export function EditorWorkspace() {
                   phase={phase}
                   providerCapabilities={providerCapabilities}
                   realRequestsUsed={realRequestsUsed}
-                  transformSelected={transformSelected}
-                  extendSelected={extendSelected}
+                  workflow={workflow}
                   onGenerate={() => void handleGeneratePreview()}
                   onGenerateTransform={handleTransformPreview}
                   onPlanExtend={editor.planExtend}
@@ -283,7 +285,7 @@ export function EditorWorkspace() {
               </div>
             )}
           </aside>
-          <CanvasFrame busyAction={busyAction} onUpload={handleUpload} extendSelected={extendSelected} onAdjustTransform={handleAdjustTransform} onAdjustExtend={handleAdjustExtend} />
+          <CanvasFrame busyAction={busyAction} onUpload={handleUpload} extendSelected={workflow.kind === "extend"} onAdjustTransform={handleAdjustTransform} onAdjustExtend={handleAdjustExtend} />
         </section>
       </main>
       <DiagnosticsDrawer projectId={editor.projectId} focusRequestId={editor.lastRequestId} open={diagnosticsOpen} onClose={() => setDiagnosticsOpen(false)} />

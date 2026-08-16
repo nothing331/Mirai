@@ -1,10 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 
-async function uploadTestImage(page: Page) {
-  await page.getByTestId("file-input").evaluate(async (input: HTMLInputElement) => {
+async function uploadTestImage(page: Page, width = 20, height = 20) {
+  await page.getByTestId("file-input").evaluate(async (input: HTMLInputElement, dimensions) => {
     const canvas = document.createElement("canvas");
-    canvas.width = 20;
-    canvas.height = 20;
+    canvas.width = dimensions.width;
+    canvas.height = dimensions.height;
     const context = canvas.getContext("2d")!;
     context.fillStyle = "#2878b8";
     context.fillRect(0, 0, 20, 20);
@@ -13,6 +13,23 @@ async function uploadTestImage(page: Page) {
     transfer.items.add(new File([blob], "sample.png", { type: "image/png" }));
     input.files = transfer.files;
     input.dispatchEvent(new Event("change", { bubbles: true }));
+  }, { width, height });
+  const editorCanvas = page.getByTestId("editor-canvas");
+  await expect(editorCanvas).toBeVisible();
+  await expect.poll(async () => Number(await editorCanvas.getAttribute("data-viewport-x"))).toBeGreaterThan(0);
+}
+
+async function clickSourcePoint(page: Page, sourceX: number, sourceY: number) {
+  const editorCanvas = page.getByTestId("editor-canvas");
+  await editorCanvas.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  const viewportX = Number(await editorCanvas.getAttribute("data-viewport-x"));
+  const viewportY = Number(await editorCanvas.getAttribute("data-viewport-y"));
+  const viewportScale = Number(await editorCanvas.getAttribute("data-viewport-scale"));
+  await editorCanvas.locator("canvas").first().click({
+    position: {
+      x: viewportX + sourceX * viewportScale,
+      y: viewportY + sourceY * viewportScale,
+    },
   });
 }
 
@@ -35,7 +52,7 @@ test("upload, select, and recolor an image", async ({ page }) => {
   const initialX = Number(await canvas.getAttribute("data-viewport-x"));
   const initialY = Number(await canvas.getAttribute("data-viewport-y"));
   await expect(page.getByRole("heading", { name: "Mirai" })).toBeVisible();
-  await expect(page.getByLabel("Size")).toHaveCount(0);
+  await expect(page.getByLabel("Size", { exact: true })).toHaveCount(0);
   await page.mouse.move(bounds.x + initialX + 2, bounds.y + initialY + 2);
   await page.mouse.down();
   await page.mouse.move(bounds.x + initialX + 17, bounds.y + initialY + 2, { steps: 4 });
@@ -47,7 +64,7 @@ test("upload, select, and recolor an image", async ({ page }) => {
   await page.getByRole("button", { name: "Remove selection" }).click();
   await expect(page.getByRole("button", { name: "Remove selection" })).toHaveCount(0);
   await page.getByRole("radio", { name: "Add", exact: true }).click();
-  await expect(page.getByLabel("Size")).toBeVisible();
+  await expect(page.getByLabel("Size", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Softness")).toBeVisible();
   await expect(canvas).toHaveClass(/tool-lasso/);
   await page.getByRole("button", { name: "Collapse inspector" }).click();
@@ -77,7 +94,7 @@ test("upload, select, and recolor an image", async ({ page }) => {
   await page.mouse.wheel(0, -300);
   await expect(canvas).not.toHaveAttribute("data-viewport-scale", scaleBefore!);
   await page.getByRole("radio", { name: "Hand" }).click();
-  await expect(page.getByLabel("Size")).toHaveCount(0);
+  await expect(page.getByLabel("Size", { exact: true })).toHaveCount(0);
   await expect(page.getByLabel("Softness")).toHaveCount(0);
   const viewportBefore = await canvas.getAttribute("data-viewport-x");
   const panBounds = await canvas.boundingBox();
@@ -121,28 +138,25 @@ test("brush paint is draft-only until applied and eraser only clears that draft"
   await page.goto("/");
   await uploadTestImage(page);
   const canvas = page.getByTestId("editor-canvas");
-  const imageX = Number(await canvas.getAttribute("data-viewport-x"));
-  const imageY = Number(await canvas.getAttribute("data-viewport-y"));
-
   await page.getByRole("radio", { name: "Brush" }).click();
   await expect(page.getByRole("heading", { name: "Brush" })).toBeVisible();
   await expect(page.getByTestId("generate-edit")).toHaveCount(0);
   await page.getByLabel("Brush color").fill("#ff0000");
-  await canvas.locator("canvas").first().click({ position: { x: imageX + 5, y: imageY + 5 } });
+  await clickSourcePoint(page, 5, 5);
   await expect(page.getByText("1 pending gesture")).toBeVisible();
   await expect(page.getByText("0 accepted edits", { exact: true })).toBeVisible();
 
   await page.getByRole("radio", { name: "Eraser" }).click();
   await expect(page.getByText(/original image is never erased/i)).toBeVisible();
-  await canvas.locator("canvas").first().click({ position: { x: imageX + 5, y: imageY + 5 } });
+  await clickSourcePoint(page, 5, 5);
   await expect(page.getByText("2 pending gestures")).toBeVisible();
   await page.getByTestId("discard-paint").click();
   await expect(page.getByText("0 accepted edits", { exact: true })).toBeVisible();
   await expect(page.getByTestId("apply-paint")).toBeDisabled();
 
   await page.getByRole("radio", { name: "Brush" }).click();
-  await canvas.locator("canvas").first().click({ position: { x: imageX + 5, y: imageY + 5 } });
-  await canvas.locator("canvas").first().click({ position: { x: imageX + 15, y: imageY + 15 } });
+  await clickSourcePoint(page, 5, 5);
+  await clickSourcePoint(page, 15, 15);
   await page.getByTestId("apply-paint").click();
   await expect(page.getByText("1 accepted edit", { exact: true })).toBeVisible();
   await page.getByTestId("undo").click();
@@ -156,13 +170,62 @@ test("brush paint is draft-only until applied and eraser only clears that draft"
   await expect(page.getByTestId("editor-inspector")).toBeVisible();
 });
 
+test("text, watermark, and crop stay live on canvas and apply without comparison", async ({ page }) => {
+  await page.goto("/");
+  await uploadTestImage(page, 320, 200);
+  await expect(page.getByText("320 × 200px", { exact: true })).toBeVisible();
+  const editorCanvas = page.getByTestId("editor-canvas");
+  const sceneCanvas = editorCanvas.locator("canvas").first();
+
+  await page.getByTestId("open-text").click();
+  await expect(editorCanvas).toHaveAttribute("data-local-draft", "text");
+  await expect(page.getByTestId("preview-comparison")).toHaveCount(0);
+  const initialTextCanvas = await sceneCanvas.evaluate((canvas: HTMLCanvasElement) => canvas.toDataURL());
+  await page.getByLabel("Text content").fill("VISIBLE NOW");
+  await expect.poll(() => sceneCanvas.evaluate((canvas: HTMLCanvasElement) => canvas.toDataURL())).not.toBe(initialTextCanvas);
+  await expect(page.getByText("0 accepted edits", { exact: true })).toBeVisible();
+  await page.getByTestId("apply-local-edit").click();
+  await expect(page.getByText("1 accepted edit", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("preview-comparison")).toHaveCount(0);
+
+  await page.getByTestId("open-watermark").click();
+  await expect(editorCanvas).toHaveAttribute("data-local-draft", "watermark");
+  await page.getByRole("button", { name: "Watermark center" }).click();
+  const initialX = Number(await editorCanvas.getAttribute("data-draft-x"));
+  const initialY = Number(await editorCanvas.getAttribute("data-draft-y"));
+  const viewportX = Number(await editorCanvas.getAttribute("data-viewport-x"));
+  const viewportY = Number(await editorCanvas.getAttribute("data-viewport-y"));
+  const scale = Number(await editorCanvas.getAttribute("data-viewport-scale"));
+  const bounds = await editorCanvas.boundingBox();
+  if (!bounds) throw new Error("Editor canvas has no visible bounds.");
+  await page.mouse.move(bounds.x + viewportX + (initialX + 40) * scale, bounds.y + viewportY + (initialY + 6) * scale);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + viewportX + (initialX + 80) * scale, bounds.y + viewportY + (initialY + 30) * scale, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(async () => Number(await editorCanvas.getAttribute("data-draft-x"))).not.toBe(initialX);
+  await expect(editorCanvas).toHaveAttribute("data-draft-anchor", "free");
+  await page.getByRole("button", { name: "Watermark center" }).click();
+  await page.getByTestId("apply-local-edit").click();
+  await expect(page.getByText("2 accepted edits", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("preview-comparison")).toHaveCount(0);
+
+  await page.getByTestId("open-size-position").click();
+  await expect(editorCanvas).toHaveAttribute("data-local-draft", "crop");
+  await page.getByLabel("Crop aspect ratio").selectOption("1:1");
+  await expect(page.getByLabel("Crop width")).toHaveValue("200");
+  await page.getByTestId("apply-local-edit").click();
+  await expect(page.getByText("200 × 200px", { exact: true })).toBeVisible();
+  await expect(page.getByText("3 accepted edits", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("preview-comparison")).toHaveCount(0);
+});
+
 test("Transform works without a selection for local and generative presets", async ({ page }) => {
   const projectName = `Transform project ${Date.now()}`;
   await page.goto("/");
   await uploadTestImage(page);
 
   const toolRail = page.getByRole("complementary", { name: "Editor tools" });
-  for (const label of ["Lasso", "Brush", "Eraser", "Hand", "Transform"]) {
+  for (const label of ["Lasso", "Brush", "Eraser", "Hand", "AI Transform"]) {
     await toolRail.getByLabel(label, { exact: true }).hover();
     await expect(toolRail.locator(`[data-tooltip="${label}"]`)).toBeVisible();
   }
@@ -252,11 +315,9 @@ test("fake provider supports generative success, retry, and failure states", asy
   await uploadTestImage(page);
   const canvas = page.getByTestId("editor-canvas");
   await expect(canvas).toBeVisible();
-  const imageX = Number(await canvas.getAttribute("data-viewport-x"));
-  const imageY = Number(await canvas.getAttribute("data-viewport-y"));
   await page.getByRole("radio", { name: "Add", exact: true }).click();
   await expect(canvas).toHaveClass(/tool-lasso/);
-  await canvas.locator("canvas").first().click({ position: { x: imageX + 10, y: imageY + 10 } });
+  await clickSourcePoint(page, 10, 10);
 
   await page.getByRole("radio", { name: "Remove" }).click();
   await page.getByText("Advanced", { exact: true }).click();
