@@ -42,9 +42,11 @@ The plan assumes approximately 1–2 hours per day. Complete and verify one mile
 | 12. Full-candidate review | Complete | Approximate focus semantics, full-candidate default, optional protected compositing, scope diagnosis, and change-map evidence |
 | 13. Image-first workspace UI | Complete | Compact tool rail, contextual inspector, global command header, responsive layout, keyboard tools, and state-driven review/failure presentation |
 | 14. Focused direct canvas tools | Complete | Lasso-owned generation, direct paint drafts, draft-only erasing, and inspector-free hand navigation |
-| 15. Full-image Transform | Complete | Versioned visual presets, local Monochrome, source-content planning, maskless generation, aspect enforcement, semantic fidelity review, persistence, and diagnostics |
-| 16. Smart Extend | Complete | Versioned social formats, cached scene analysis, deterministic Smart Reframe, low-quality outpainting, exact retained-core compositing, dimension-changing history, and frame preview |
-| 17. Direct utility edits | Complete | Main-shell Size & position, Text, and Watermark workflows with live canvas drafts, pointer manipulation, guarded Save/Discard navigation, persistence, and immutable history |
+| 15. Icon and logo-mark generation | Complete | Structured brief, one-result generation, local transparency, project provenance, persistence, diagnostics, and fake-environment verification |
+| 16. Purpose-led AI image creation | Complete | Logo Mark, Icon, and Create Image choices with server-owned treatments, four destination formats, one low-quality result, provenance, diagnostics, and browser verification |
+| 17. Full-image Transform | Complete | Versioned visual presets, local Monochrome, source-content planning, maskless generation, aspect enforcement, semantic fidelity review, persistence, and diagnostics |
+| 18. Smart Extend | Complete | Versioned social formats, cached scene analysis, deterministic Smart Reframe, low-quality outpainting, exact retained-core compositing, dimension-changing history, and frame preview |
+| 19. Direct utility edits | Complete | Main-shell Size & position, Text, and Watermark workflows with live canvas drafts, pointer manipulation, guarded Save/Discard navigation, persistence, and immutable history |
 
 Update this table whenever a milestone begins or completes.
 
@@ -233,7 +235,7 @@ A user can close the application, reopen a project, continue editing, and export
 
 ## Next development sessions
 
-The v0.1 engineering milestones, focused direct tools, image-first workspace shell, live utility edits, full-candidate review policy, context-aware Replace planner, full-image Transform workflow, and reproducible diagnostic workflow are complete. New editor features should enter through the tool rail, contextual inspector, global command menu, dialog, or supporting drawer instead of adding permanent sidebar sections. Keep one primary responsibility per tool; place submodes such as Add/Subtract or Crop/Resize/Rotate/Flip inside the owning workflow. Generated proposals use comparison; leaving a changed directly manipulated draft opens the shared save/discard navigation guard. When an image result looks wrong, pin its request in the diagnostics drawer and use “Copy for coding agent” before changing the pipeline.
+The v0.1 engineering milestones, purpose-led AI creation, focused direct tools, image-first workspace shell, live utility edits, full-candidate review policy, context-aware Replace planner, full-image Transform workflow, Smart Extend, and reproducible diagnostics are complete. Create with AI offers Logo Mark, Icon, and Create Image; every request spends at most one image call, retains only the latest successful result temporarily, and enters the existing project pipeline only after selection. Create Image uses server-owned treatment and destination registries rather than reference upload or custom dimensions. New editor features should enter through the tool rail, contextual inspector, global command menu, dialog, or supporting drawer instead of adding permanent sidebar sections. Keep one primary responsibility per tool; place submodes such as Add/Subtract or Crop/Resize/Rotate/Flip inside the owning workflow. Generated proposals use comparison; leaving a changed directly manipulated draft opens the shared save/discard navigation guard. When an image result looks wrong, pin its request in the diagnostics drawer and use “Copy for coding agent” before changing the pipeline.
 
 ## Plan maintenance
 

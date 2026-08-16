@@ -52,7 +52,7 @@ export class RequestDiagnosticSession implements ImageEditDiagnosticSink {
       retryable: null,
       error: null,
       providerCalls: [],
-      events: [{ id: randomUUID(), timestamp: now, stage: "received", level: "info", message: "Image-edit request received." }],
+      events: [{ id: randomUUID(), timestamp: now, stage: "received", level: "info", message: "Provider request received." }],
       artifacts: {},
       bundlePath,
     };

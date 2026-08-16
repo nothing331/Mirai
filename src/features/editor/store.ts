@@ -13,6 +13,7 @@ import { blocksReplaceReviewAcceptance } from "@/shared/edit-boundary";
 import { blocksTransformAcceptance, unavailableTransformFidelityAssessment } from "@/shared/transform-fidelity";
 import { requestExtendCandidate, requestExtendPlan } from "./extend-client";
 import type { EditBoundaryPolicy } from "@/shared/edit-boundary";
+import type { ProjectOrigin } from "@/shared/asset-generation";
 import { solveSmartReframe, type ExtendSceneAnalysis } from "@/shared/extend-plan";
 import { getExtendPreset } from "@/shared/extend-presets";
 import type { CropRatio, EditOperation, EditPreview, EditType, ExtendDraftState, ExtendInput, FakeScenario, GenerativePreviewState, GenerativeRequestSnapshot, GeometryEditType, ImageVersion, LassoVisualization, LocalEditDraft, MaskAsset, OverlayImageAsset, PaintSession, ProcessingMask, SelectionDiagnostics, SelectionMode, SourcePoint, Tool, TransformInput, Viewport } from "./types";
@@ -21,6 +22,7 @@ interface EditorState {
   originalVersionId: string | null;
   projectId: string | null;
   projectName: string;
+  projectOrigin: ProjectOrigin;
   currentVersionId: string | null;
   versions: ImageVersion[];
   operations: EditOperation[];
@@ -50,8 +52,8 @@ interface EditorState {
   color: string;
   error: string | null;
   lastRequestId: string | null;
-  loadImage: (version: ImageVersion) => void;
-  restoreProject: (project: { id: string; name: string; originalVersionId: string; currentVersionId: string; versions: ImageVersion[]; operations: EditOperation[]; maskAssets: MaskAsset[]; overlayAssets?: OverlayImageAsset[] }) => void;
+  loadImage: (version: ImageVersion, options?: { projectId?: string; projectName?: string; projectOrigin?: ProjectOrigin; lastRequestId?: string | null }) => void;
+  restoreProject: (project: { id: string; name: string; origin?: ProjectOrigin; originalVersionId: string; currentVersionId: string; versions: ImageVersion[]; operations: EditOperation[]; maskAssets: MaskAsset[]; overlayAssets?: OverlayImageAsset[] }) => void;
   setProjectName: (name: string) => void;
   setViewport: (viewport: Viewport) => void;
   requestViewReset: () => void;
@@ -180,6 +182,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   originalVersionId: null,
   projectId: null,
   projectName: "Untitled edit",
+  projectOrigin: { kind: "upload" },
   currentVersionId: null,
   versions: [],
   operations: [],
@@ -197,9 +200,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   lassoVisualization: null,
   paintSession: null,
   ...initialControls,
-  loadImage: (version) => set((state) => ({
-    projectId: crypto.randomUUID(),
-    projectName: "Untitled edit",
+  loadImage: (version, options) => set((state) => ({
+    projectId: options?.projectId ?? crypto.randomUUID(),
+    projectName: options?.projectName ?? "Untitled edit",
+    projectOrigin: options?.projectOrigin ?? { kind: "upload" },
     originalVersionId: version.id,
     currentVersionId: version.id,
     versions: [version],
@@ -219,7 +223,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     paintSession: null,
     viewResetKey: state.viewResetKey + 1,
     error: null,
-    lastRequestId: null,
+    lastRequestId: options?.lastRequestId ?? null,
   })),
   restoreProject: (project) => {
     const current = project.versions.find((version) => version.id === project.currentVersionId);
@@ -227,6 +231,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((state) => ({
       projectId: project.id,
       projectName: project.name,
+      projectOrigin: project.origin ?? { kind: "upload" },
       originalVersionId: project.originalVersionId,
       currentVersionId: project.currentVersionId,
       versions: project.versions,
@@ -311,6 +316,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   clearSelection: () => set((state) => state.selectionMask ? {
     selectionMask: createMask(state.selectionMask.width, state.selectionMask.height),
     selectionId: crypto.randomUUID(),
+    selectionMode: "draw",
     preview: null,
     generativeState: idleGenerativeState,
     selectionDiagnostics: null,

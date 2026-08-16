@@ -1,10 +1,12 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import initSqlJs, { type Database } from "sql.js";
+import type { ProjectOrigin } from "@/shared/asset-generation";
 
 export interface ProjectSnapshot {
   id: string;
   name: string;
+  origin?: ProjectOrigin;
   originalVersionId: string;
   currentVersionId: string;
   versions: Array<{ id: string; parentVersionId: string | null; width: number; height: number; mediaType: "image/png" | "image/jpeg"; dataUrl: string }>;

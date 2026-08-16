@@ -4,7 +4,7 @@ An image editor where users can manipulate deterministic drafts directly on the 
 
 ## Status
 
-The finished v0.1 editor supports Lasso-based selection and AI editing, direct color painting with draft-only erasing, live Crop/Resize/Rotate/Flip, draggable text and text/PNG watermarks, local recoloring, generative Remove/Replace/Restyle previews, preset-driven full-image Transform, immutable linear undo/redo, durable local projects, diagnostics, and original-resolution PNG/JPEG export. A deterministic fake provider is enabled by default, so the complete workflow runs without an API key.
+The finished v0.1 editor supports one-result AI creation for icon/logo marks and complete images, Lasso-based selection and AI editing, direct color painting with draft-only erasing, live Crop/Resize/Rotate/Flip, draggable text and text/PNG watermarks, local recoloring, generative Remove/Replace/Restyle previews, preset-driven full-image Transform, Smart Extend, immutable linear undo/redo, durable local projects, diagnostics, and original-resolution PNG/JPEG export. Deterministic fake providers are enabled by default, so the complete workflow runs without an API key.
 
 Documentation:
 
@@ -22,6 +22,8 @@ npm run dev
 Open `http://localhost:3000`. Saved project metadata is stored in `.local-edit/projects.sqlite`; immutable accepted images and masks are stored under `.local-edit/assets/`. Add `.local-edit/` to backups if you want to retain local projects between machines.
 
 Mirai keeps direct canvas tools in the left rail and shows only the active workflow in the adjacent inspector. Lasso owns Draw/Add/Subtract selection and all selection-based generation. Brush paints a temporary color layer; Eraser removes only that pending paint; Apply records the complete paint session as one reversible edit. Apply before saving or reloading because pending paint is not persisted. Hand pans the image and hides the inspector because it has no settings. Use `L`, `B`, `E`, and `H` for those tools, and `Cmd/Ctrl + Z` or `Cmd/Ctrl + Shift + Z` for undo and redo.
+
+From the empty canvas or sparkle button in the tool rail, **Create with AI** offers **Logo Mark**, **Icon**, and **Create Image**. Logo Mark and Icon collect a structured brief and remove a constrained matte locally. Create Image combines the visible prompt with an Auto, Photograph, Sketch, Watercolor, Digital Art, 3D, or Anime treatment and a server-owned Instagram Post, Instagram Portrait, Story / Reel, or YouTube Thumbnail format. Every choice makes one low-quality generation request for one result. Using it opens and auto-saves a new project original with zero edit operations; closing the dialog discards the temporary result.
 
 Choose **Size & position**, **Text**, or **Watermark** in the rail for deterministic editing without a comparison screen. Inspector changes appear immediately on the canvas. Crop, text, and watermark objects can be dragged; text and watermark expose resize/rotation handles; arrow keys nudge the active object by one source pixel or ten with Shift. When you switch tools, an unchanged draft closes silently; a changed draft asks whether to **Save edit**, **Discard changes**, or **Keep editing**. Saving creates one immutable operation/version.
 
@@ -47,9 +49,12 @@ Copy `.env.example` to `.env.local` when provider configuration is needed. The d
 
 ```bash
 IMAGE_EDIT_PROVIDER=fake
+ASSET_GENERATION_PROVIDER=fake
 ```
 
 For an optional real OpenAI smoke test, set `IMAGE_EDIT_PROVIDER=openai` and provide `OPENAI_API_KEY` in `.env.local`. Keys are read only by the server route and must never be committed.
+
+Real popup creation is configured separately with `ASSET_GENERATION_PROVIDER=openai`. It defaults to `gpt-image-2`, always uses the Images generation endpoint with low quality, PNG output, and one result, and allows two confirmed requests per browser session. Configure the model and request limit with `OPENAI_ASSET_GENERATION_MODEL` and `OPENAI_ASSET_MAX_BATCHES_PER_SESSION`. Mark derives transparency locally without a second background-removal service; Create Image preserves the complete provider composition.
 
 Replace operations first use `gpt-5-nano-2025-08-07` to interpret the selected scene and turn short instructions into a structured physical placement plan. Transform uses the same configurable vision model before generation to lock source content and after generation to assess semantic fidelity. The vision model is configured with `OPENAI_EDIT_PLANNER_MODEL` and does not generate pixels. If source planning fails, the image request is not sent; if Transform validation fails afterward, the candidate is preserved but Faithful and Balanced acceptance fails closed.
 

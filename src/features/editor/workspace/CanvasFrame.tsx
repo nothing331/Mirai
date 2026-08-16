@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import Image from "next/image";
-import { Check, Focus, ImagePlus, LoaderCircle, SlidersHorizontal, X } from "lucide-react";
+import { Check, Focus, ImagePlus, LoaderCircle, SlidersHorizontal, Sparkles, X } from "lucide-react";
 import type { ChangeEvent } from "react";
 import { useState } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -18,7 +18,7 @@ const EditorCanvas = dynamic(() => import("../EditorCanvas").then((module) => mo
   loading: () => <div className="absolute inset-0 grid place-items-center font-mono text-xs text-white">Preparing canvas…</div>,
 });
 
-export function CanvasFrame({ busyAction, onUpload, extendSelected, onAdjustTransform, onAdjustExtend }: { busyAction: BusyAction; onUpload: (event: ChangeEvent<HTMLInputElement>) => void; extendSelected: boolean; onAdjustTransform: () => void; onAdjustExtend: () => void }) {
+export function CanvasFrame({ busyAction, onUpload, onGenerateAsset, extendSelected, onAdjustTransform, onAdjustExtend }: { busyAction: BusyAction; onUpload: (event: ChangeEvent<HTMLInputElement>) => void; onGenerateAsset: () => void; extendSelected: boolean; onAdjustTransform: () => void; onAdjustExtend: () => void }) {
   const [compareWith, setCompareWith] = useState<ComparisonBase>("original");
   const state = useEditorStore(useShallow((editor) => ({
     currentVersion: getCurrentVersion(editor),
@@ -65,12 +65,20 @@ export function CanvasFrame({ busyAction, onUpload, extendSelected, onAdjustTran
         ) : state.currentVersion && state.selectionMask ? (
           <EditorCanvas version={state.currentVersion} mask={state.selectionMask} color={state.color} viewResetKey={state.viewResetKey} />
         ) : (
-          <label className="group absolute inset-0 flex cursor-pointer flex-col items-center justify-center gap-2 text-[#d4d1c8]">
-            <span className="mb-2 grid size-14 place-items-center rounded-full border border-[#77746c] transition-[transform,background-color,color] group-hover:rotate-90 group-hover:bg-acid group-hover:text-ink"><ImagePlus className="size-5" /></span>
-            <strong className="text-sm">Open an image</strong>
-            <span className="font-mono text-[9px] uppercase tracking-[.12em] text-[#8e8b82]">PNG or JPEG</span>
-            <input className="sr-only" type="file" accept="image/png,image/jpeg" onChange={onUpload} />
-          </label>
+          <div className="absolute inset-0 grid place-items-center p-6 text-[#d4d1c8]">
+            <div className="grid w-full max-w-xl gap-6 text-center">
+              <div><p className="font-mono text-[9px] uppercase tracking-[.2em] text-acid">Start a new original</p><h2 className="mt-2 text-2xl font-bold tracking-[-.04em] text-paper sm:text-3xl">Bring an image—or invent the mark.</h2></div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="group grid min-h-36 cursor-pointer place-items-center border border-[#77746c] p-5 hover:border-paper hover:bg-white/5">
+                  <span><ImagePlus className="mx-auto mb-3 size-5 transition-transform group-hover:rotate-90" /><strong className="block text-sm">Open an image</strong><small className="mt-1 block font-mono text-[8px] uppercase tracking-wider text-[#8e8b82]">PNG or JPEG</small></span>
+                  <input className="sr-only" type="file" accept="image/png,image/jpeg" onChange={onUpload} />
+                </label>
+                <button data-testid="open-asset-generator" type="button" className="group grid min-h-36 place-items-center border border-acid bg-acid p-5 text-ink hover:bg-paper" onClick={onGenerateAsset}>
+                  <span><Sparkles className="mx-auto mb-3 size-5 transition-transform group-hover:scale-125" /><strong className="block text-sm">Create with AI</strong><small className="mt-1 block font-mono text-[8px] uppercase tracking-wider text-muted">Logo mark · icon · image</small></span>
+                </button>
+              </div>
+            </div>
+          </div>
         )}
         {busyAction === "open" && <ProjectLoadingOverlay />}
       </div>
