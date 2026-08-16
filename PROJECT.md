@@ -2,17 +2,17 @@
 
 ## Product thesis
 
-Most AI image tools replace an image with another generated result. This product treats AI as an editor: the user indicates where an edit should focus, reviews the model's complete proposal, and can undo or compare every accepted change. Users can opt into an exact protected boundary when preservation is more important than natural generative blending.
+Most AI image tools replace an image with another generated result. This product treats AI as an editor: the user either indicates where a localized edit should focus or intentionally transforms the complete image, reviews the proposal, and can undo or compare every accepted change. Localized edits can opt into an exact protected boundary when preservation is more important than natural generative blending.
 
 The v0.1 promise is:
 
-> Upload an image, indicate the intended focus, review a complete AI edit, accept or undo it, and export the chosen version.
+> Upload an image, make a focused edit or transform the complete image, review the proposal, accept or undo it, and export the chosen version.
 
 The project initially targets normal users rather than professional design workflows.
 
 ## Current state
 
-The editor supports PNG/JPEG upload, pan and zoom, conservatively cleaned closed-contour selection, brush and eraser refinement, deterministic crop/resize/rotate/flip/recolor operations, editable text and text/PNG watermark drafts, and generative Remove/Replace/Restyle operations. Replace requests use a low-cost multimodal intent planner to turn short instructions into scene-aware structured plans before image generation. Generative editing uses provider-neutral server boundaries, deterministic fake implementations by default, and optional OpenAI adapters. The complete normalized provider candidate is the default review preview; an explicit protected mode retains exact mask compositing. Local drafts render in source coordinates, are flattened only when accepted, and never call the image provider. Accepted operations and dimension-aware image versions form linear immutable history with undo/redo; projects, masks, and watermark assets can be saved locally, reopened, and exported as PNG or JPEG.
+The editor supports PNG/JPEG upload, pan and zoom, conservatively cleaned Lasso selection with internal Add/Subtract refinement, direct non-destructive paint drafts, draft-only erasing, deterministic selection recoloring, generative Remove/Replace/Restyle operations, preset-driven full-image Transform, and dimension-changing Smart Extend. The image-first workspace gives each canvas tool one job: Lasso owns selection edits and generation, Brush paints, Eraser corrects pending paint, Hand pans without an inspector, and the image-wide Transform and Extend workflows occupy the contextual inspector as first-class rail actions. Rail icons reveal their full names on hover or keyboard focus. Replace requests use a low-cost multimodal intent planner to turn short instructions into scene-aware structured plans before image generation. Generative Transform uses a separate source-content planner, deterministic recipe construction, maskless image editing, and post-generation semantic fidelity validation. Extend separates cached semantic scene analysis from deterministic crop/placement, previews its target frame before generation, and restores the retained source core after low-quality outpainting. Generative editing uses provider-neutral server boundaries, deterministic fake implementations by default, and optional OpenAI adapters. The complete normalized provider candidate is the default review preview for ordinary generative edits; protected localized edits and Extend apply application-owned exact compositing. Each request creates a reproducible diagnostic bundle with its timeline, masks, provider calls, prompts, plans or recipe configuration, candidate analysis, Transform fidelity assessment, change map, and final preview. Accepted operations, versions, and masks form linear immutable history whose versions may have different dimensions, and projects can be saved to local SQLite metadata plus immutable filesystem assets, reopened, and exported as PNG or JPEG.
 
 ## v0.1 scope
 
@@ -26,13 +26,12 @@ Upload → canvas → manual mask → local recolor → generative edit → hist
 
 - PNG and JPEG upload
 - image canvas with pan and zoom
-- conservative closed-contour cleanup with diagnostics, brush, and eraser mask refinement
-- on-canvas edit instructions synchronized with the inspector
+- conservative closed-contour cleanup with diagnostics and Lasso-owned Add/Subtract refinement
+- direct color painting with draft-only erasing and one-step Apply/Discard
+- compact on-canvas selection feedback with edit configuration in the contextual inspector
 - deterministic recoloring
-- deterministic crop, resize, quarter-turn rotation, and horizontal/vertical flip
-- editable source-coordinate text overlays that flatten on acceptance
-- visible text or transparent-PNG watermarks with free or anchored placement
 - localized generative removal or restyling
+- full-image Monochrome, Sketch, Old Cartoon, Cinematic, Anime Theme, and custom transformations
 - complete generative candidate review with optional exact protected masking
 - preview acceptance and discard
 - linear undo, redo, and comparison
@@ -74,7 +73,7 @@ src/
 ├── app/                  Pages and API entry points
 ├── features/
 │   ├── canvas/           Rendering and coordinate conversion
-│   ├── masking/          Brush, eraser, and mask serialization
+│   ├── masking/          Lasso selection refinement and mask serialization
 │   ├── editing/          Operations, routing, and orchestration
 │   ├── diagnostics/      Request evidence browser and API client
 │   ├── history/          Versions, undo, redo, and compare
@@ -100,6 +99,12 @@ Directories should be introduced with their first real behavior. Do not create s
 - Diagnostics observe the edit pipeline but cannot create operations, versions, or provider requests.
 - Diagnostic failures never change the result or status of the edit they observe.
 - Shared code remains small and cannot become a generic utility directory.
+
+### Workspace UI boundary
+
+The workspace shell separates global commands, direct canvas tools, contextual configuration, and supporting drawers. Presentation phases are derived from authoritative editor state rather than persisted separately: empty, ready, selected, processing, preview, and failed. The tool rail owns interaction-mode selection; Lasso owns selection editing and every generative action; Brush and Eraser share a temporary paint session; Hand owns navigation and automatically removes the inspector. Canvas components own display interaction and review, while header commands own project-wide actions. Changing tools cannot commit history or call a provider.
+
+Future UI features enter through an explicit canvas tool, inspector panel, global command, dialog, or drawer. Use TypeScript unions and exhaustive rendering instead of a generalized plugin registry until independently developed extensions require one. Image-wide operations may eventually require an explicit image-versus-selection operation scope, but that persisted contract should evolve with the first real image-wide feature rather than speculatively.
 
 ## Core concepts
 
@@ -185,15 +190,20 @@ Preview
 | Operation | Engine |
 |---|---|
 | Recolor | Local processing |
+| Direct paint | Local source-space compositing |
 | Brightness or contrast | Local processing |
 | Blur | Local processing |
 | Background isolation | Segmentation and compositing |
 | Remove object | Generative image editing |
 | Replace object | Generative image editing |
 | Change material | Generative image editing |
+| Plain monochrome conversion | Local processing |
+| Full-image visual transformation | Generative image editing with a versioned preset recipe |
 | Generate missing content | Generative image editing |
 
 For v0.1, the user selects the operation explicitly. Replace performs contextual interpretation inside that chosen operation; automatic classification between operations remains deferred.
+
+Direct paint uses a short-lived RGBA layer rather than a selection mask. Brush adds color, Eraser removes only that layer's alpha, and Apply flattens all pending gestures into one local operation and immutable version. This keeps undo meaningful and prevents Eraser from destroying accepted image pixels, at the cost of not retaining editable paint strokes after Apply.
 
 ### Generative input
 
@@ -211,6 +221,12 @@ Do not send only an isolated object in the initial implementation. The surroundi
 Replace sends a highlighted full-scene view, a highlighted selection detail, and the user's short instruction to an application-owned text-and-vision planner. The planner returns a validated representation, target, integration rules, constraints, exclusions, confidence, and diagnostic rationale. The application deterministically converts that plan into the image-editor instruction; rationale is never sent to image generation.
 
 The planner is text-only and cannot create image pixels. Planner failure stops the pipeline before the more expensive image request. Remove and Restyle continue directly to the image provider.
+
+### Full-image Transform
+
+Transform is an explicit global operation rather than a Lasso submode. It captures a versioned preset, optional user refinement, and a Faithful/Balanced/Imaginative preservation level, defaulting to Faithful. A Transform-specific vision planner describes the source subjects and composition without choosing a style; the server combines that plan with the resolved recipe to construct the image-editor instruction. The application creates a source-sized full-image effective mask for immutable history and diagnostics but intentionally omits an inpainting mask from the complete-image provider request.
+
+Plain Monochrome uses deterministic luminance conversion because it requires no invented pixels. Adding creative Monochrome direction routes through generation. Every generative Transform requests an explicit source-aligned output aspect, preserves the complete normalized candidate for review, records its resolved instruction and recipe version, and consumes one confirmed image request. A post-generation vision call compares source and candidate semantics. Faithful and Balanced block acceptance on semantic failure or unavailable validation while retaining the proposal for comparison and diagnostics; Imaginative remains manually reviewable.
 
 ### Candidate authority and protected compositing
 
@@ -261,7 +277,7 @@ Undo and redo move the current-version pointer. Arbitrary operation toggling and
 
 ## Implementation plan
 
-Build order, milestone status, concrete deliverables, and verification gates live in [LOCAL_DEVELOPMENT_PLAN.md](./LOCAL_DEVELOPMENT_PLAN.md). This separation keeps architecture stable while allowing the execution plan to change frequently.
+Implemented feature behavior, ownership, and verification references live in [FEATURE_CONTEXT.md](./FEATURE_CONTEXT.md). Build order, milestone status, concrete deliverables, and verification gates live in [LOCAL_DEVELOPMENT_PLAN.md](./LOCAL_DEVELOPMENT_PLAN.md). This separation keeps architecture stable while allowing feature context and the execution plan to change at their appropriate rates.
 
 ## Current decisions
 
@@ -278,9 +294,6 @@ These decisions are intentionally kept here until the project becomes large enou
 | Request diagnostics | Structured local manifests plus directly inspectable artifacts | Accepted |
 | Replace intent planning | Structured multimodal plan before image generation | Accepted |
 | Generative selection semantics | Approximate focus by default; explicit protected boundary available | Accepted |
-| Local transform processing | Browser-local deterministic kernels; no provider request | Accepted |
-| Text and watermark editing | Editable draft overlay, flattened into one accepted raster version | Accepted |
-| Overlay coordinates | Source-image coordinates, independent of viewport zoom | Accepted |
 
 ## Code documentation policy
 
@@ -310,9 +323,6 @@ Required behavior belongs in automated tests. High-priority tests include:
 - export without an additional provider call
 - diagnostic mask dimensions and artifact integrity
 - logging failures not affecting edit behavior or accepted history
-- dimension-changing edits recreating selection state at output dimensions
-- exact crop/quarter-turn/flip pixel mapping and deterministic resize dimensions
-- text and watermark acceptance producing one operation and one version
 
 ## v0.1 completion criteria
 
@@ -329,6 +339,6 @@ The release is complete when a user can:
 
 ## Documentation growth policy
 
-Keep `PROJECT.md` as the project-wide product and architecture reference. Keep `LOCAL_DEVELOPMENT_PLAN.md` as the execution reference because it changes at a different rate. Introduce additional documents only when a section has independent ownership or becomes too large for targeted reading.
+Keep `PROJECT.md` as the project-wide product and architecture reference. Keep `FEATURE_CONTEXT.md` as the implemented-feature reference and update it with every affected feature pull request. Keep `LOCAL_DEVELOPMENT_PLAN.md` as the execution reference because it changes at a different rate. Introduce other documents only when a section has independent ownership or becomes too large for targeted reading.
 
 If a generated code graph is added later, treat it as a derived navigation index. Source code and tests remain authoritative for implemented behavior; this file remains authoritative for planned behavior.

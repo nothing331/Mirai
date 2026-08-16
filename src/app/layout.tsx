@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Local Edit — Image Editor",
-  description: "Select a region and recolor it without changing the rest of the image.",
+  title: "Mirai — Image Editor",
+  description: "A non-destructive workspace for precise local and generative image editing.",
 };
 
 /** Supplies document metadata and global styling for every application route. */

@@ -2,7 +2,7 @@
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { FakeEditIntentPlanner } from "./fake-intent-planner";
-import { buildPlannedContext, preparePlannerImages } from "./intent-planner";
+import { buildPlannedContext, buildPlannerInstruction, preparePlannerImages } from "./intent-planner";
 
 async function sourceAndMask() {
   const width = 120;
@@ -37,5 +37,25 @@ describe("edit intent planning", () => {
     const instruction = buildPlannedContext(result.plan);
     expect(instruction).toContain("graphic applied flush to the selected surface");
     expect(instruction).toContain("flagpole");
+  });
+
+  it("makes selected instances authoritative and protects similar unselected subjects", () => {
+    const plannerInstruction = buildPlannerInstruction();
+    expect(plannerInstruction).toContain("authoritative edit targets");
+    expect(plannerInstruction).toContain("same-category subject elsewhere");
+    expect(plannerInstruction).toContain("Do not propose optional secondary edits");
+
+    const providerContext = buildPlannedContext({
+      target: "the two highlighted loose strawberries at the lower right",
+      representation: "scene_content",
+      integration: "Replace them in place at the same scale.",
+      constraints: ["preserve the package"],
+      exclusions: ["other strawberries"],
+      confidence: "high",
+      rationale: "Only the two loose strawberries intersect the highlighted focus.",
+    });
+    expect(providerContext).toContain("limited to the subject instance or instances visibly intersecting the marked focus");
+    expect(providerContext).toContain("Preserve similar-looking and same-category subjects outside that focus");
+    expect(providerContext).toContain("Do not add optional secondary content");
   });
 });

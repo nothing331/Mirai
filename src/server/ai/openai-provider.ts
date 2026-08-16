@@ -26,25 +26,28 @@ export class OpenAIImageEditProvider implements ImageEditProvider {
       const providerWidth = Math.max(1, Math.round(request.width * scale));
       const providerHeight = Math.max(1, Math.round(request.height * scale));
       const providerImage = await sharp(request.imagePng).resize(providerWidth, providerHeight, { fit: "fill" }).png().toBuffer();
-      const providerMask = await makeOpenAITransparencyMask(request.maskPng, providerWidth, providerHeight);
-      const selection = await describeSelection(request.maskPng, request.width, request.height);
+      const providerMask = request.maskPng ? await makeOpenAITransparencyMask(request.maskPng, providerWidth, providerHeight) : null;
+      const selection = request.maskPng
+        ? await describeSelection(request.maskPng, request.width, request.height)
+        : { leftPercent: 0, topPercent: 0, widthPercent: 100, heightPercent: 100, touchesImageEdge: true };
       const instruction = buildEditInstruction(request.operation, request.prompt, selection, request.boundaryPolicy, request.plan);
-      await diagnostics?.event("provider-preparation", "Prepared resized provider image, transparency mask, and instruction.", { providerWidth, providerHeight });
+      const requestedOutputSize = request.operation === "transform" ? resolveTransformOutputSize(providerWidth, providerHeight) : null;
+      await diagnostics?.event("provider-preparation", providerMask ? "Prepared resized provider image, transparency mask, and instruction." : "Prepared resized provider image and complete-image instruction without an inpainting mask.", { providerWidth, providerHeight, providerMaskSent: Boolean(providerMask), requestedOutputSize });
       await diagnostics?.artifact("provider-input.png", providerImage, "image/png");
-      await diagnostics?.artifact("provider-mask.png", providerMask, "image/png");
+      if (providerMask) await diagnostics?.artifact("provider-mask.png", providerMask, "image/png");
       await diagnostics?.metadata({
         providerInstruction: instruction,
         providerDimensions: { width: providerWidth, height: providerHeight },
-        configuration: { model: this.model, quality: this.quality, maxInputEdge: this.maxInputEdge, outputFormat: "png" },
+        configuration: { model: this.model, quality: this.quality, maxInputEdge: this.maxInputEdge, outputFormat: "png", providerMaskSent: Boolean(providerMask), requestedOutputSize },
       });
       await diagnostics?.beginProviderCall("image-editor", "openai", this.model);
       await diagnostics?.event("provider-call", "Calling the OpenAI image-edit provider.");
       const { data: response, request_id: providerRequestId } = await this.client.images.edit({
         model: this.model,
         image: await toFile(providerImage, "image.png", { type: "image/png" }),
-        mask: await toFile(providerMask, "mask.png", { type: "image/png" }),
+        ...(providerMask ? { mask: await toFile(providerMask, "mask.png", { type: "image/png" }) } : {}),
         prompt: instruction,
-        size: "auto",
+        size: requestedOutputSize ?? "auto",
         quality: this.quality,
         ...(supportsInputFidelity(this.model) ? { input_fidelity: "high" as const } : {}),
         output_format: "png",
@@ -64,6 +67,7 @@ export class OpenAIImageEditProvider implements ImageEditProvider {
         size: response.size,
         candidates: response.data?.map((candidate) => ({ revisedPrompt: candidate.revised_prompt ?? null })) ?? [],
       }, null, 2)), "application/json");
+      if (requestedOutputSize) await assertCandidateAspectRatio(rawCandidate, requestedOutputSize, providerRequestId);
       await diagnostics?.completeProviderCall("image-editor", providerRequestId, flattenUsage(response.usage));
       const normalized = await sharp(rawCandidate).resize(request.width, request.height, { fit: "fill" }).png().toBuffer();
       await diagnostics?.event("normalization", "Normalized the provider candidate to source-image dimensions.", { width: request.width, height: request.height });
@@ -85,6 +89,37 @@ export class OpenAIImageEditProvider implements ImageEditProvider {
       throw providerError;
     }
   }
+}
+
+const minimumOutputPixels = 655_360;
+const maximumOutputEdge = 3_840;
+
+/** Produces a supported explicit size close to the prepared input aspect ratio. */
+export function resolveTransformOutputSize(width: number, height: number): `${number}x${number}` {
+  const aspectRatio = width / height;
+  if (aspectRatio > 3 || aspectRatio < 1 / 3) throw new ImageProviderError("Transform requires an image aspect ratio between 1:3 and 3:1.", false);
+  const landscape = width >= height;
+  const ratio = landscape ? aspectRatio : 1 / aspectRatio;
+  const preparedLongEdge = Math.max(width, height);
+  const minimumLongEdge = Math.sqrt(minimumOutputPixels * ratio);
+  const longEdge = align16(Math.min(maximumOutputEdge, Math.max(1_024, preparedLongEdge, minimumLongEdge)), "up");
+  const shortEdge = align16(longEdge / ratio, "nearest");
+  return landscape ? `${longEdge}x${shortEdge}` : `${shortEdge}x${longEdge}`;
+}
+
+async function assertCandidateAspectRatio(rawCandidate: Uint8Array, requestedSize: `${number}x${number}`, providerRequestId: string | null): Promise<void> {
+  const metadata = await sharp(rawCandidate).metadata();
+  if (!metadata.width || !metadata.height) throw new ImageProviderError("OpenAI returned an image without valid dimensions.", false, { providerRequestId });
+  const [requestedWidth, requestedHeight] = requestedSize.split("x").map(Number);
+  const deviation = Math.abs(metadata.width / metadata.height - requestedWidth / requestedHeight) / (requestedWidth / requestedHeight);
+  if (deviation > 0.015) {
+    throw new ImageProviderError(`OpenAI returned ${metadata.width}×${metadata.height}, which does not preserve the requested ${requestedSize} Transform aspect ratio.`, false, { providerRequestId });
+  }
+}
+
+function align16(value: number, direction: "up" | "nearest"): number {
+  const aligned = (direction === "up" ? Math.ceil(value / 16) : Math.round(value / 16)) * 16;
+  return Math.max(16, Math.min(maximumOutputEdge, aligned));
 }
 
 /** Prevents optional image-edit parameters from being sent to model versions that reject them. */
@@ -109,6 +144,7 @@ export function buildEditInstruction(
   boundaryPolicy: ImageEditRequest["boundaryPolicy"],
   plan?: ImageEditRequest["plan"],
 ): string {
+  if (operation === "transform") return prompt;
   const geometry = `The user's marked focus begins at ${selection.leftPercent}% from the left and ${selection.topPercent}% from the top, and spans ${selection.widthPercent}% of the image width by ${selection.heightPercent}% of the image height.`;
   const scope = boundaryPolicy === "protected"
     ? "Treat that focus as a strict edit boundary. Keep every visible change inside it and preserve every pixel outside it exactly."
@@ -118,7 +154,7 @@ export function buildEditInstruction(
   }
   if (operation === "replace") {
     const plannedContext = plan ? buildPlannedContext(plan) : "Infer the most physically plausible representation from the selected surface and surrounding scene.";
-    const edgeConstraint = selection.touchesImageEdge ? "The focus touches an image edge; avoid accidental cropping unless the instruction asks for it." : "Keep the requested content complete and visually balanced in the surrounding composition.";
+    const edgeConstraint = selection.touchesImageEdge ? "The focus touches an image edge; avoid accidental cropping unless the instruction asks for it." : "Keep the selected replacement complete while retaining the position, scale, and composition of unselected content.";
     return `Add or replace content according to this instruction: ${prompt}. ${plannedContext} ${edgeConstraint} Integrate it convincingly with correct perspective, scale, contact, occlusion, lighting, reflections, and shadows appropriate to its planned representation. ${geometry} ${scope} Introduce no unrelated objects or text.`;
   }
   return `Restyle the existing selected content according to this instruction: ${prompt}. Keep the selected subject's identity, silhouette, geometry, scale, and position. Change only the requested appearance or material; do not add a new subject or crop existing parts. Match the scene's lighting and perspective. ${geometry} ${scope}`;

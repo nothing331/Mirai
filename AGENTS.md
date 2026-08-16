@@ -19,12 +19,70 @@ Use the smallest relevant source for the task:
 | Need | Read |
 |---|---|
 | Durable repository rules | `AGENTS.md` |
+| Implemented feature behavior and ownership | Relevant entry in `FEATURE_CONTEXT.md` |
 | Existing behavior | Relevant source code and tests |
+| Frontend design, interaction, layout, styling, or copy | `FRONTEND_DESIGN.md`, then the owning components and tests |
 | Product scope, architecture, data flow, or decisions | Relevant section of `PROJECT.md` |
 | Current milestone, build order, or deliverables | Relevant section of `LOCAL_DEVELOPMENT_PLAN.md` |
 | Setup and canonical commands | `README.md` and package scripts |
 
 Do not load every document for routine changes. Small localized tasks should begin with the relevant code and tests. Read project documents only when the task depends on their context.
+
+## Frontend design
+
+`FRONTEND_DESIGN.md` is the durable visual and interaction contract for the editor. Every agent changing frontend layout, styling, controls, responsive behavior, motion, accessibility, or user-facing copy must read it before implementation.
+
+- Follow its product shell, visual language, component patterns, and state requirements unless the user approves a design-direction change.
+- Prefer existing tokens and patterns. Do not introduce a parallel visual system inside one feature.
+- Update the guide when an approved change alters a reusable design rule; keep feature-specific behavior in `FEATURE_CONTEXT.md`.
+- Verify relevant hover, focus, disabled, processing, failure, responsive, and review states rather than checking only the default appearance.
+
+## Feature approval and delivery
+
+A feature is a user-visible capability or a cohesive behavioral change. Bug fixes, refactors, and repository maintenance are not automatically features, but they must still follow the documentation and commit rules below when they change feature behavior.
+
+- Do not begin implementing a proposed feature until the user has approved its scope. Exploration, diagnosis, and written proposals are allowed before approval; production implementation is not.
+- Treat each approved feature as its own delivery unit and raise it in its own pull request. Do not combine unrelated features in one pull request.
+- If implementation reveals a material change to product behavior, architecture, user experience, scope, or long-term maintenance, explain the choice and obtain renewed approval before expanding the feature.
+- Keep incidental cleanup narrowly tied to the approved feature. Propose unrelated cleanup separately.
+- A feature is ready for a pull request only after its implementation, focused tests, relevant broader verification, and documentation are complete.
+
+## Feature context
+
+`FEATURE_CONTEXT.md` is the living index of implemented product behavior. It explains how every feature works, where it is implemented, what state and boundaries it owns, how it fails, and how it is verified. Source code and tests remain authoritative when documentation and implementation disagree.
+
+For every feature change:
+
+1. Read the relevant `FEATURE_CONTEXT.md` entry before implementation.
+2. Update that entry as the implementation evolves; add a new entry for a new feature.
+3. Record behavior, end-to-end flow, important data/state, UI and server responsibilities, business rules, failure behavior, dependencies, limitations, and code/test references that actually apply.
+4. Describe the final implemented behavior, not a diary of intermediate attempts.
+5. Before raising a pull request, verify every affected entry against the final diff and tests. The feature-context update belongs in the same pull request as the behavior it documents.
+
+Pure repository-only changes may state in the pull-request description that no feature context changed. This exception must not be used when user-visible behavior, an API contract, business rules, persistence, or a feature's failure modes changed.
+
+Do not duplicate project-wide architecture or planning in the feature ledger. Update `PROJECT.md` for project-wide architecture, scope, data flow, or decisions, and `LOCAL_DEVELOPMENT_PLAN.md` for milestone state, build order, or deliverables.
+
+## Commit and pull-request discipline
+
+Commits must be small, coherent, independently understandable, and separated by both concern and feature. Use these concern boundaries:
+
+- **UI:** components, interaction behavior, client presentation, and styling.
+- **Server:** routes, provider adapters, storage implementations, and server integration.
+- **Business logic:** domain contracts, edit rules, orchestration, validation, state transitions, and deterministic processing.
+- **Repository:** tests and fixtures when they cannot accompany one concern cleanly, documentation, configuration, tooling, and CI.
+
+Do not mix these concerns in one commit merely because they support the same feature. A cross-layer feature should normally be a short sequence of ordered commits, each leaving the repository in a valid state. A test should usually travel with the concern it verifies; use a separate repository/test commit only for cross-cutting suites or infrastructure.
+
+Write each commit so another engineer can understand it without reading the full diff:
+
+- Use an imperative subject in the form `<type>(<area>): <specific outcome>`, for example `feat(editor-ui): add protected-mode control`.
+- Use `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, or `build` as the type.
+- Add a commit body for every non-trivial commit. Explain why the change is needed, what behavior or contract changed, important implementation choices, and the verification performed.
+- Explain meaningful tradeoffs or follow-up limitations in the body. Do not use vague subjects such as `fixes`, `updates`, or `changes`.
+- Keep formatting-only or generated-file changes separate when practical.
+
+Before committing, inspect the staged diff and confirm it contains one feature and one concern. Before raising a pull request, confirm the commit sequence is reviewable, the approved feature is the only feature in scope, `FEATURE_CONTEXT.md` is current, and the pull-request description explains the user outcome, layer-by-layer implementation, tradeoffs, verification, and known limitations.
 
 ## Collaboration and learning
 

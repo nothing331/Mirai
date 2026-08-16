@@ -1,14 +1,19 @@
 import { create } from "zustand";
 import { GenerativeRequestError, requestGenerativeCandidate } from "./generative-client";
 import { pixelsToDataUrl } from "./image-data";
-import { cropPixels, flipPixels, resizePixels, rotatePixels } from "./local-transforms";
 import { cleanRasterMask, unionMasks } from "./mask-cleanup";
-import { createGenerativeProviderMask, createMask, fillPolygonMask, maskHasSelection, paintMask } from "./mask";
-import { renderTextOverlay, renderWatermarkOverlay } from "./overlay-renderer";
+import { createFullImageMask, createGenerativeProviderMask, createMask, fillPolygonMask, maskHasSelection, paintMask } from "./mask";
+import { monochromePixels } from "./monochrome";
+import { compositePaintOverlay, createPaintOverlay, paintOverlayMask, paintOverlayStroke } from "./paint";
 import { recolorPixels } from "./recolor";
 import { cleanLassoContour } from "./selection-geometry";
+import { blocksReplaceReviewAcceptance } from "@/shared/edit-boundary";
+import { blocksTransformAcceptance, unavailableTransformFidelityAssessment } from "@/shared/transform-fidelity";
+import { requestExtendCandidate, requestExtendPlan } from "./extend-client";
 import type { EditBoundaryPolicy } from "@/shared/edit-boundary";
-import type { CropRatio, EditOperation, EditPreview, EditType, EditorMode, FakeScenario, GenerativePreviewState, GenerativeRequestSnapshot, ImageVersion, LassoVisualization, LocalEditDraft, MaskAsset, OverlayImageAsset, ProcessingMask, SelectionDiagnostics, SourcePoint, Tool, TransformType, Viewport } from "./types";
+import { solveSmartReframe, type ExtendSceneAnalysis } from "@/shared/extend-plan";
+import { getExtendPreset } from "@/shared/extend-presets";
+import type { EditOperation, EditPreview, EditType, ExtendDraftState, ExtendInput, FakeScenario, GenerativePreviewState, GenerativeRequestSnapshot, ImageVersion, LassoVisualization, MaskAsset, PaintSession, ProcessingMask, SelectionDiagnostics, SelectionMode, SourcePoint, Tool, TransformInput, Viewport } from "./types";
 
 interface EditorState {
   originalVersionId: string | null;
@@ -18,20 +23,20 @@ interface EditorState {
   versions: ImageVersion[];
   operations: EditOperation[];
   maskAssets: MaskAsset[];
-  overlayAssets: OverlayImageAsset[];
   preview: EditPreview | null;
-  localDraft: LocalEditDraft | null;
-  editorMode: EditorMode;
-  transformType: TransformType;
   editType: EditType;
   prompt: string;
   fakeScenario: FakeScenario;
   boundaryPolicy: EditBoundaryPolicy;
   generativeState: GenerativePreviewState;
+  extendState: ExtendDraftState;
+  extendAnalysisCache: Record<string, ExtendSceneAnalysis>;
   selectionMask: ProcessingMask | null;
   selectionId: string | null;
+  selectionMode: SelectionMode;
   selectionDiagnostics: SelectionDiagnostics | null;
   lassoVisualization: LassoVisualization | null;
+  paintSession: PaintSession | null;
   viewport: Viewport;
   viewResetKey: number;
   tool: Tool;
@@ -41,7 +46,7 @@ interface EditorState {
   error: string | null;
   lastRequestId: string | null;
   loadImage: (version: ImageVersion) => void;
-  restoreProject: (project: { id: string; name: string; originalVersionId: string; currentVersionId: string; versions: ImageVersion[]; operations: EditOperation[]; maskAssets: MaskAsset[]; overlayAssets?: OverlayImageAsset[] }) => void;
+  restoreProject: (project: { id: string; name: string; originalVersionId: string; currentVersionId: string; versions: ImageVersion[]; operations: EditOperation[]; maskAssets: MaskAsset[] }) => void;
   setProjectName: (name: string) => void;
   setViewport: (viewport: Viewport) => void;
   requestViewReset: () => void;
@@ -50,21 +55,22 @@ interface EditorState {
   setMaskSoftness: (softness: number) => void;
   setColor: (color: string) => void;
   setError: (error: string | null) => void;
-  setEditorMode: (mode: EditorMode) => void;
-  beginLocalDraft: (type: TransformType | "text" | "watermark") => void;
-  updateLocalDraft: (draft: LocalEditDraft) => void;
-  cancelLocalDraft: () => void;
-  createLocalPreview: () => boolean;
-  addOverlayAsset: (asset: OverlayImageAsset) => void;
   setEditType: (editType: EditType) => void;
   setPrompt: (prompt: string) => void;
   setFakeScenario: (scenario: FakeScenario) => void;
   setBoundaryPolicy: (policy: EditBoundaryPolicy) => void;
+  setSelectionMode: (mode: SelectionMode) => void;
   fillSelection: (points: SourcePoint[], viewportScale?: number) => void;
-  paintSelection: (from: SourcePoint, to: SourcePoint) => void;
+  refineSelection: (from: SourcePoint, to: SourcePoint) => void;
   clearSelection: () => void;
+  applyPaintStroke: (points: SourcePoint[], erase?: boolean) => void;
+  discardPaintSession: () => void;
+  commitPaintSession: () => boolean;
   createPreview: () => boolean;
   requestGenerativePreview: () => Promise<boolean>;
+  requestTransformPreview: (input: TransformInput) => Promise<boolean>;
+  planExtend: (input: ExtendInput) => Promise<boolean>;
+  generateExtend: () => Promise<boolean>;
   retryGenerativePreview: () => Promise<boolean>;
   acceptPreview: () => boolean;
   discardPreview: () => void;
@@ -82,17 +88,17 @@ const initialControls = {
   brushSize: 40,
   maskSoftness: 0.2,
   color: "#ef4b32",
-  editorMode: "ai" as EditorMode,
-  transformType: "crop" as TransformType,
   editType: "recolor" as EditType,
   prompt: "",
   fakeScenario: "success" as FakeScenario,
   boundaryPolicy: "review" as EditBoundaryPolicy,
+  selectionMode: "draw" as SelectionMode,
   error: null,
   lastRequestId: null,
 };
 
 const idleGenerativeState: GenerativePreviewState = { status: "idle", snapshot: null, error: null, retryable: false };
+const idleExtendState: ExtendDraftState = { status: "idle", input: null, analysis: null, plan: null, error: null };
 
 /** Owns one filled source-resolution selection and separates previews from accepted history. */
 export const useEditorStore = create<EditorState>((set, get) => ({
@@ -103,14 +109,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   versions: [],
   operations: [],
   maskAssets: [],
-  overlayAssets: [],
   preview: null,
-  localDraft: null,
   generativeState: idleGenerativeState,
+  extendState: idleExtendState,
+  extendAnalysisCache: {},
   selectionMask: null,
   selectionId: null,
   selectionDiagnostics: null,
   lassoVisualization: null,
+  paintSession: null,
   ...initialControls,
   loadImage: (version) => set((state) => ({
     projectId: crypto.randomUUID(),
@@ -120,14 +127,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     versions: [version],
     operations: [],
     maskAssets: [],
-    overlayAssets: [],
     preview: null,
-    localDraft: null,
     generativeState: idleGenerativeState,
+    extendState: idleExtendState,
+    extendAnalysisCache: {},
     selectionMask: createMask(version.width, version.height),
     selectionId: crypto.randomUUID(),
     selectionDiagnostics: null,
     lassoVisualization: null,
+    paintSession: null,
     viewResetKey: state.viewResetKey + 1,
     error: null,
     lastRequestId: null,
@@ -135,7 +143,27 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   restoreProject: (project) => {
     const current = project.versions.find((version) => version.id === project.currentVersionId);
     if (!current) return;
-    set((state) => ({ ...project, overlayAssets: project.overlayAssets ?? [], preview: null, localDraft: null, generativeState: idleGenerativeState, lastRequestId: null, selectionMask: createMask(current.width, current.height), selectionId: crypto.randomUUID(), selectionDiagnostics: null, lassoVisualization: null, viewResetKey: state.viewResetKey + 1, error: null }));
+    set((state) => ({
+      projectId: project.id,
+      projectName: project.name,
+      originalVersionId: project.originalVersionId,
+      currentVersionId: project.currentVersionId,
+      versions: project.versions,
+      operations: project.operations,
+      maskAssets: project.maskAssets,
+      preview: null,
+      generativeState: idleGenerativeState,
+      extendState: idleExtendState,
+      extendAnalysisCache: {},
+      lastRequestId: null,
+      selectionMask: createMask(current.width, current.height),
+      selectionId: crypto.randomUUID(),
+      selectionDiagnostics: null,
+      lassoVisualization: null,
+      paintSession: null,
+      viewResetKey: state.viewResetKey + 1,
+      error: null,
+    }));
   },
   setProjectName: (projectName) => set({ projectName }),
   setViewport: (viewport) => set({ viewport }),
@@ -145,58 +173,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setMaskSoftness: (maskSoftness) => set({ maskSoftness }),
   setColor: (color) => set({ color, preview: null }),
   setError: (error) => set({ error }),
-  setEditorMode: (editorMode) => set({ editorMode, localDraft: null, preview: null, error: null }),
-  beginLocalDraft: (type) => {
-    const state = get();
-    const input = state.versions.find((version) => version.id === state.currentVersionId);
-    if (!input) return;
-    const id = crypto.randomUUID();
-    let localDraft: LocalEditDraft;
-    if (type === "crop") localDraft = { id, inputVersionId: input.id, type, parameters: { sourceRect: { x: 0, y: 0, width: input.width, height: input.height }, ratio: "free" as CropRatio } };
-    else if (type === "resize") localDraft = { id, inputVersionId: input.id, type, parameters: { width: input.width, height: input.height, preserveAspectRatio: true, preventUpscale: false } };
-    else if (type === "rotate") localDraft = { id, inputVersionId: input.id, type, parameters: { quarterTurns: 1 } };
-    else if (type === "flip") localDraft = { id, inputVersionId: input.id, type, parameters: { axis: "horizontal" } };
-    else if (type === "text") localDraft = { id, inputVersionId: input.id, type, parameters: { content: "Your text", x: input.width * 0.15, y: input.height * 0.42, width: input.width * 0.7, fontFamily: "Manrope", fontSize: Math.max(18, Math.round(input.width * 0.07)), fontWeight: 700, color: "#ffffff", opacity: 1, rotation: 0, align: "center", backgroundColor: null, padding: 12 } };
-    else localDraft = { id, inputVersionId: input.id, type, parameters: { source: "text", content: "© Mirai", overlayAssetId: null, x: input.width * 0.68, y: input.height * 0.86, width: input.width * 0.26, fontFamily: "Manrope", fontSize: Math.max(12, Math.round(input.width * 0.028)), color: "#ffffff", opacity: 0.55, rotation: 0, anchor: "south-east", margin: Math.max(8, Math.round(input.width * 0.02)) } };
-    set({ localDraft, transformType: type === "text" || type === "watermark" ? state.transformType : type, preview: null, error: null });
-  },
-  updateLocalDraft: (localDraft) => set((state) => state.currentVersionId === localDraft.inputVersionId ? { localDraft, preview: null, error: null } : {}),
-  cancelLocalDraft: () => set({ localDraft: null, preview: null, error: null }),
-  addOverlayAsset: (asset) => set((state) => ({ overlayAssets: [...state.overlayAssets.filter((item) => item.id !== asset.id), asset] })),
-  createLocalPreview: () => {
-    const state = get();
-    const draft = state.localDraft;
-    const input = state.versions.find((version) => version.id === draft?.inputVersionId);
-    if (!draft || !input || state.currentVersionId !== draft.inputVersionId) {
-      set({ error: "Start a local edit before reviewing it." });
-      return false;
-    }
-    try {
-      let rendered;
-      if (draft.type === "crop") rendered = cropPixels(input, draft.parameters.sourceRect);
-      else if (draft.type === "resize") {
-        const scale = draft.parameters.preventUpscale ? Math.min(1, input.width / draft.parameters.width, input.height / draft.parameters.height) : 1;
-        const width = Math.max(1, Math.round(draft.parameters.width * scale));
-        const height = Math.max(1, Math.round(draft.parameters.height * scale));
-        rendered = resizePixels(input, width, height);
-      } else if (draft.type === "rotate") rendered = rotatePixels(input, draft.parameters.quarterTurns);
-      else if (draft.type === "flip") rendered = flipPixels(input, draft.parameters.axis);
-      else if (draft.type === "text") rendered = renderTextOverlay(input, draft.parameters);
-      else rendered = renderWatermarkOverlay(input, draft.parameters, state.overlayAssets.find((asset) => asset.id === draft.parameters.overlayAssetId) ?? null);
-      set({
-        preview: { id: crypto.randomUUID(), inputVersionId: input.id, selectionId: null, mask: null, width: rendered.width, height: rendered.height, pixels: rendered.pixels, dataUrl: pixelsToDataUrl(rendered.pixels, rendered.width, rendered.height), type: draft.type, method: "local", parameters: draft.parameters } as EditPreview,
-        error: null,
-      });
-      return true;
-    } catch (error) {
-      set({ preview: null, error: error instanceof Error ? error.message : "The local preview could not be created." });
-      return false;
-    }
-  },
   setEditType: (editType) => set({ editType, preview: null, generativeState: idleGenerativeState, error: null }),
   setPrompt: (prompt) => set({ prompt, preview: null, generativeState: idleGenerativeState }),
   setFakeScenario: (fakeScenario) => set({ fakeScenario }),
   setBoundaryPolicy: (boundaryPolicy) => set({ boundaryPolicy, preview: null, generativeState: idleGenerativeState }),
+  setSelectionMode: (selectionMode) => set({ selectionMode }),
   fillSelection: (points, viewportScale = 1) => set((state) => {
     if (!state.selectionMask) return {};
     try {
@@ -230,14 +211,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         lassoVisualization: { rawPoints: contour.rawPoints, cleanedPoints: contour.points, showRawContour: warnings.length > 0 },
         preview: null,
         generativeState: idleGenerativeState,
-        error: contour.usedRawContour && contour.selfIntersectionCount > 0 ? "The lasso crossed over itself, so the original contour was preserved. Refine it with Brush or Eraser." : null,
+        error: contour.usedRawContour && contour.selfIntersectionCount > 0 ? "The lasso crossed over itself, so the original contour was preserved. Refine it with Add or Subtract." : null,
       };
     } catch (error) {
       return { error: error instanceof Error ? error.message : "The closed selection could not be filled." };
     }
   }),
-  paintSelection: (from, to) => set((state) => state.selectionMask ? {
-    selectionMask: paintMask(state.selectionMask, from, to, state.brushSize / 2, state.tool === "eraser" ? 0 : 255, state.maskSoftness),
+  refineSelection: (from, to) => set((state) => state.selectionMask ? {
+    selectionMask: paintMask(state.selectionMask, from, to, state.brushSize / 2, state.selectionMode === "subtract" ? 0 : 255, state.maskSoftness),
     preview: null,
     generativeState: idleGenerativeState,
     lassoVisualization: null,
@@ -252,9 +233,55 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     lassoVisualization: null,
     error: null,
   } : {}),
+  applyPaintStroke: (points, erase = false) => set((state) => {
+    if (points.length === 0 || !state.currentVersionId) return {};
+    const current = state.versions.find((version) => version.id === state.currentVersionId);
+    if (!current || (erase && !state.paintSession)) return {};
+    const session = state.paintSession?.baseVersionId === current.id
+      ? state.paintSession
+      : { id: crypto.randomUUID(), baseVersionId: current.id, overlay: createPaintOverlay(current.width, current.height), colors: [], strokeCount: 0 };
+    const overlay = paintOverlayStroke(session.overlay, points, state.brushSize / 2, state.maskSoftness, state.color, erase);
+    const colors = erase || session.colors.includes(state.color) ? session.colors : [...session.colors, state.color];
+    return {
+      paintSession: { ...session, overlay, colors, strokeCount: session.strokeCount + 1 },
+      preview: null,
+      generativeState: idleGenerativeState,
+      error: null,
+    };
+  }),
+  discardPaintSession: () => set({ paintSession: null, error: null }),
+  commitPaintSession: () => {
+    const state = get();
+    const session = state.paintSession;
+    const input = state.versions.find((version) => version.id === state.currentVersionId);
+    if (!session || !input || session.baseVersionId !== input.id) {
+      set({ paintSession: null, error: "There is no current paint to apply." });
+      return false;
+    }
+    const selectionMask = paintOverlayMask(session.overlay);
+    if (!maskHasSelection(selectionMask)) {
+      set({ paintSession: null, error: null });
+      return false;
+    }
+    const pixels = compositePaintOverlay(input, session.overlay);
+    const mask: MaskAsset = { id: crypto.randomUUID(), ...selectionMask };
+    set({
+      preview: {
+        id: crypto.randomUUID(), inputVersionId: input.id, type: "paint", method: "local",
+        parameters: { colors: [...session.colors], strokeCount: session.strokeCount }, mask, pixels,
+        dataUrl: pixelsToDataUrl(pixels, input.width, input.height), width: input.width, height: input.height,
+      },
+      error: null,
+    });
+    return get().acceptPreview();
+  },
   createPreview: () => {
     const state = get();
     const input = state.versions.find((version) => version.id === state.currentVersionId);
+    if (state.paintSession) {
+      set({ error: "Apply or discard the pending paint before creating another edit." });
+      return false;
+    }
     if (!input || !state.selectionMask || !state.selectionId || !maskHasSelection(state.selectionMask)) {
       set({ error: "Draw a closed selection before previewing the edit." });
       return false;
@@ -267,8 +294,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       };
       set({
         preview: {
-          id: crypto.randomUUID(), inputVersionId: input.id, selectionId: state.selectionId, type: "recolor", method: "local", parameters: { color: state.color }, mask,
-          width: input.width, height: input.height, pixels, dataUrl: pixelsToDataUrl(pixels, input.width, input.height),
+          id: crypto.randomUUID(), inputVersionId: input.id, type: "recolor", method: "local", parameters: { color: state.color }, mask,
+          pixels, dataUrl: pixelsToDataUrl(pixels, input.width, input.height), width: input.width, height: input.height,
         },
         error: null,
       });
@@ -281,6 +308,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   requestGenerativePreview: async () => {
     const state = get();
     const input = state.versions.find((version) => version.id === state.currentVersionId);
+    if (state.paintSession) {
+      set({ error: "Apply or discard the pending paint before generating an edit." });
+      return false;
+    }
     if ((state.editType !== "remove" && state.editType !== "replace" && state.editType !== "restyle") || !input || !state.selectionMask || !state.selectionId || !maskHasSelection(state.selectionMask)) {
       set({ error: "Draw a closed selection and choose a generative operation." });
       return false;
@@ -304,6 +335,50 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     };
     return executeGenerativeRequest(snapshot);
   },
+  requestTransformPreview: async (transformInput) => {
+    const state = get();
+    const input = state.versions.find((version) => version.id === state.currentVersionId);
+    if (state.paintSession) {
+      set({ error: "Apply or discard the pending paint before transforming the image." });
+      return false;
+    }
+    const userPrompt = transformInput.userPrompt.trim();
+    if (!input) {
+      set({ error: "Open an image before transforming it." });
+      return false;
+    }
+    if (!transformInput.presetId && !userPrompt) {
+      set({ error: "Choose a transformation preset or describe a custom transformation." });
+      return false;
+    }
+    const normalizedInput = { ...transformInput, userPrompt };
+    const fullMask = createFullImageMask(input.width, input.height);
+    if (normalizedInput.presetId === "monochrome" && userPrompt.length === 0) {
+      const mask: MaskAsset = { id: crypto.randomUUID(), ...fullMask };
+      const pixels = monochromePixels(input);
+      set({
+        preview: {
+          id: crypto.randomUUID(), inputVersionId: input.id, type: "transform", method: "local",
+          parameters: { ...normalizedInput, resolvedInstruction: "Deterministic monochrome luminance conversion." },
+          mask, pixels, dataUrl: pixelsToDataUrl(pixels, input.width, input.height), width: input.width, height: input.height,
+        },
+        generativeState: idleGenerativeState,
+        error: null,
+      });
+      return true;
+    }
+    const snapshot: GenerativeRequestSnapshot = {
+      projectId: state.projectId!,
+      requestId: crypto.randomUUID(),
+      retryOfRequestId: null,
+      inputVersion: { ...input, pixels: new Uint8ClampedArray(input.pixels) },
+      providerMask: fullMask,
+      operation: "transform",
+      ...normalizedInput,
+      scenario: state.fakeScenario,
+    };
+    return executeGenerativeRequest(snapshot);
+  },
   retryGenerativePreview: async () => {
     const state = get();
     if (state.generativeState.status !== "failed" || !state.generativeState.retryable) return false;
@@ -313,6 +388,67 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       retryOfRequestId: state.generativeState.snapshot.requestId,
     });
   },
+  planExtend: async (extendInput) => {
+    const state = get();
+    const input = state.versions.find((version) => version.id === state.currentVersionId);
+    if (!input || state.paintSession) {
+      set({ error: state.paintSession ? "Apply or discard the pending paint before extending the image." : "Open an image before extending it." });
+      return false;
+    }
+    const normalized: ExtendInput = { ...extendInput, userPrompt: extendInput.userPrompt.trim() };
+    const cachedAnalysis = state.extendAnalysisCache[input.id] ?? null;
+    if (cachedAnalysis) {
+      const preset = getExtendPreset(normalized.presetId, normalized.presetVersion);
+      if (!preset) {
+        set({ error: "The selected Extend format is unavailable." });
+        return false;
+      }
+      const plan = solveSmartReframe({ width: input.width, height: input.height, presetId: normalized.presetId, presetVersion: normalized.presetVersion, ratio: preset.ratio, strategy: normalized.strategy, analysis: cachedAnalysis });
+      set({ extendState: { status: "planned", input: normalized, analysis: cachedAnalysis, plan, error: null }, preview: null, error: null });
+      return true;
+    }
+    set({ extendState: { status: "analyzing", input: normalized, analysis: cachedAnalysis, plan: null, error: null }, preview: null, error: null });
+    try {
+      const result = await requestExtendPlan(input, normalized, cachedAnalysis, state.projectId!);
+      if (get().currentVersionId !== input.id) return false;
+      set((current) => ({ extendState: { status: "planned", input: normalized, analysis: result.analysis, plan: result.plan, error: null }, extendAnalysisCache: { ...current.extendAnalysisCache, [input.id]: result.analysis } }));
+      return true;
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Smart Reframe planning failed.";
+      set({ extendState: { status: "failed", input: normalized, analysis: cachedAnalysis, plan: null, error: message }, error: message });
+      return false;
+    }
+  },
+  generateExtend: async () => {
+    const state = get();
+    const input = state.versions.find((version) => version.id === state.currentVersionId);
+    if (!input || state.extendState.status !== "planned" || !state.projectId) return false;
+    const draft = state.extendState;
+    set({ extendState: { ...draft, status: "generating", phase: "sending" }, preview: null, error: null });
+    try {
+      const candidate = await requestExtendCandidate(input, draft.input, draft.analysis, draft.plan, state.projectId, (phase) => {
+        const current = get();
+        if (current.currentVersionId !== input.id || current.extendState.status !== "generating") return;
+        set({ extendState: { ...current.extendState, phase } });
+      });
+      if (get().currentVersionId !== input.id) return false;
+      const mask: MaskAsset = { id: crypto.randomUUID(), ...candidate.mask };
+      set({
+        preview: {
+          id: crypto.randomUUID(), inputVersionId: input.id, type: "extend", method: "generative",
+          parameters: { ...draft.input, plan: draft.plan, analysis: draft.analysis, resolvedInstruction: candidate.resolvedInstruction, providerRequestId: candidate.providerRequestId, diagnosticRequestId: candidate.diagnosticRequestId },
+          mask, pixels: candidate.pixels, dataUrl: candidate.dataUrl, width: candidate.width, height: candidate.height,
+        },
+        extendState: { ...draft, status: "planned" },
+        lastRequestId: candidate.diagnosticRequestId,
+      });
+      return true;
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Image extension failed.";
+      set({ extendState: { status: "failed", input: draft.input, analysis: draft.analysis, plan: draft.plan, error: message }, error: message });
+      return false;
+    }
+  },
   acceptPreview: () => {
     const state = get();
     const preview = state.preview;
@@ -321,23 +457,43 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       set({ preview: null, error: "The preview is no longer based on the current image." });
       return false;
     }
+    if (preview.method === "generative" && (preview.type === "remove" || preview.type === "replace" || preview.type === "restyle") && blocksReplaceReviewAcceptance(preview.type, preview.parameters.boundaryPolicy, preview.parameters.candidateAnalysis)) {
+      set({ error: "This Replace proposal changed too much outside the selected target. Discard it and generate again, or use protected mode." });
+      return false;
+    }
+    if (preview.method === "generative" && preview.type === "transform" && blocksTransformAcceptance(preview.parameters.preservationMode, preview.parameters.transformFidelityAssessment)) {
+      set({ error: "This Transform proposal did not preserve the source subjects and composition closely enough. Discard it and generate again, or adjust the transformation settings." });
+      return false;
+    }
     const outputId = crypto.randomUUID();
     const output: ImageVersion = {
-      ...input, id: outputId, parentVersionId: input.id, width: preview.width, height: preview.height, mediaType: "image/png",
+      ...input, id: outputId, parentVersionId: input.id, mediaType: "image/png", width: preview.width, height: preview.height,
       pixels: new Uint8ClampedArray(preview.pixels), dataUrl: preview.dataUrl,
     };
-    const operation = { id: crypto.randomUUID(), inputVersionId: input.id, outputVersionId: outputId, maskId: preview.mask?.id ?? null, type: preview.type, parameters: preview.parameters, method: preview.method, status: "accepted" } as EditOperation;
+    const operation: EditOperation = preview.method === "generative"
+      ? preview.type === "transform"
+        ? { id: crypto.randomUUID(), inputVersionId: input.id, outputVersionId: outputId, maskId: preview.mask.id, type: "transform", parameters: preview.parameters, method: "generative", status: "accepted" }
+        : preview.type === "extend"
+          ? { id: crypto.randomUUID(), inputVersionId: input.id, outputVersionId: outputId, maskId: preview.mask.id, type: "extend", parameters: preview.parameters, method: "generative", status: "accepted" }
+        : { id: crypto.randomUUID(), inputVersionId: input.id, outputVersionId: outputId, maskId: preview.mask.id, type: preview.type, parameters: preview.parameters, method: "generative", status: "accepted" }
+      : preview.type === "paint"
+        ? { id: crypto.randomUUID(), inputVersionId: input.id, outputVersionId: outputId, maskId: preview.mask.id, type: "paint", parameters: preview.parameters, method: "local", status: "accepted" }
+        : preview.type === "transform"
+          ? { id: crypto.randomUUID(), inputVersionId: input.id, outputVersionId: outputId, maskId: preview.mask.id, type: "transform", parameters: preview.parameters, method: "local", status: "accepted" }
+          : { id: crypto.randomUUID(), inputVersionId: input.id, outputVersionId: outputId, maskId: preview.mask.id, type: "recolor", parameters: preview.parameters, method: "local", status: "accepted" };
     const inputIndex = state.versions.findIndex((version) => version.id === input.id);
     const retainedVersions = state.versions.slice(0, inputIndex + 1);
     const retainedVersionIds = new Set(retainedVersions.map((version) => version.id));
     const retainedOperations = state.operations.filter((item) => item.outputVersionId && retainedVersionIds.has(item.outputVersionId));
-    const retainedMaskIds = new Set(retainedOperations.map((item) => item.maskId).filter(Boolean));
+    const retainedMaskIds = new Set(retainedOperations.map((item) => item.maskId));
+    const preserveSelection = preview.type === "paint";
     set({
       versions: [...retainedVersions, output], operations: [...retainedOperations, operation],
-      maskAssets: [...state.maskAssets.filter((mask) => retainedMaskIds.has(mask.id)), ...(preview.mask ? [preview.mask] : [])], currentVersionId: outputId, preview: null, localDraft: null,
-      selectionMask: createMask(output.width, output.height), selectionId: crypto.randomUUID(), viewResetKey: state.viewResetKey + (output.width !== input.width || output.height !== input.height ? 1 : 0),
-      selectionDiagnostics: null, lassoVisualization: null,
-      generativeState: idleGenerativeState, error: null,
+      maskAssets: [...state.maskAssets.filter((mask) => retainedMaskIds.has(mask.id)), preview.mask], currentVersionId: outputId, preview: null,
+      selectionMask: preserveSelection ? state.selectionMask : createMask(output.width, output.height), selectionId: preserveSelection ? state.selectionId : crypto.randomUUID(),
+      selectionDiagnostics: preserveSelection ? state.selectionDiagnostics : null, lassoVisualization: preserveSelection ? state.lassoVisualization : null,
+      paintSession: null,
+      generativeState: idleGenerativeState, extendState: idleExtendState, error: null,
     });
     return true;
   },
@@ -356,7 +512,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const currentIndex = state.versions.findIndex((version) => version.id === state.currentVersionId);
     if (currentIndex <= 0) return false;
     const target = state.versions[currentIndex - 1];
-    set((current) => ({ currentVersionId: target.id, preview: null, localDraft: null, generativeState: idleGenerativeState, selectionMask: createMask(target.width, target.height), selectionId: crypto.randomUUID(), selectionDiagnostics: null, lassoVisualization: null, viewResetKey: current.viewResetKey + 1, error: null }));
+    set({ currentVersionId: target.id, preview: null, paintSession: null, generativeState: idleGenerativeState, extendState: idleExtendState, selectionMask: createMask(target.width, target.height), selectionId: crypto.randomUUID(), selectionDiagnostics: null, lassoVisualization: null, error: null });
     return true;
   },
   redo: () => {
@@ -364,14 +520,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const currentIndex = state.versions.findIndex((version) => version.id === state.currentVersionId);
     if (currentIndex < 0 || currentIndex >= state.versions.length - 1) return false;
     const target = state.versions[currentIndex + 1];
-    set((current) => ({ currentVersionId: target.id, preview: null, localDraft: null, generativeState: idleGenerativeState, selectionMask: createMask(target.width, target.height), selectionId: crypto.randomUUID(), selectionDiagnostics: null, lassoVisualization: null, viewResetKey: current.viewResetKey + 1, error: null }));
+    set({ currentVersionId: target.id, preview: null, paintSession: null, generativeState: idleGenerativeState, extendState: idleExtendState, selectionMask: createMask(target.width, target.height), selectionId: crypto.randomUUID(), selectionDiagnostics: null, lassoVisualization: null, error: null });
     return true;
   },
   reset: () => set((state) => {
     const original = state.versions.find((version) => version.id === state.originalVersionId);
     return original ? {
-      currentVersionId: original.id, versions: [original], operations: [], maskAssets: [], overlayAssets: [], preview: null, localDraft: null, generativeState: idleGenerativeState,
-      selectionMask: createMask(original.width, original.height), selectionId: crypto.randomUUID(),
+      currentVersionId: original.id, versions: [original], operations: [], maskAssets: [], preview: null, paintSession: null, generativeState: idleGenerativeState,
+      selectionMask: createMask(original.width, original.height), selectionId: crypto.randomUUID(), extendState: idleExtendState,
+      extendAnalysisCache: {},
       selectionDiagnostics: null, lassoVisualization: null,
       viewResetKey: state.viewResetKey + 1, error: null,
     } : {};
@@ -386,18 +543,38 @@ async function executeGenerativeRequest(snapshot: GenerativeRequestSnapshot): Pr
     const state = useEditorStore.getState();
     if (state.generativeState.snapshot?.requestId !== snapshot.requestId) return false;
     const mask: MaskAsset = { id: crypto.randomUUID(), width: snapshot.providerMask.width, height: snapshot.providerMask.height, data: new Uint8ClampedArray(snapshot.providerMask.data) };
-    useEditorStore.setState({
-      preview: {
-        id: crypto.randomUUID(), inputVersionId: snapshot.inputVersion.id, selectionId: snapshot.selectionId,
-        type: snapshot.operation, method: "generative", parameters: {
+    let preview: EditPreview;
+    if (snapshot.operation === "transform") {
+      preview = {
+        id: crypto.randomUUID(), inputVersionId: snapshot.inputVersion.id, type: "transform", method: "generative",
+        parameters: {
+          presetId: snapshot.presetId,
+          presetVersion: snapshot.presetVersion,
+          userPrompt: snapshot.userPrompt,
+          preservationMode: snapshot.preservationMode,
+          resolvedInstruction: candidate.resolvedInstruction ?? snapshot.userPrompt,
+          providerRequestId: candidate.providerRequestId,
+          diagnosticRequestId: candidate.diagnosticRequestId,
+          candidateAnalysis: candidate.candidateAnalysis,
+          transformFidelityAssessment: candidate.transformFidelityAssessment ?? unavailableTransformFidelityAssessment(),
+        },
+        mask, pixels: candidate.pixels, dataUrl: candidate.dataUrl, width: snapshot.inputVersion.width, height: snapshot.inputVersion.height,
+      };
+    } else {
+      preview = {
+        id: crypto.randomUUID(), inputVersionId: snapshot.inputVersion.id, type: snapshot.operation, method: "generative",
+        parameters: {
           prompt: snapshot.prompt,
           providerRequestId: candidate.providerRequestId,
           diagnosticRequestId: candidate.diagnosticRequestId,
           boundaryPolicy: snapshot.boundaryPolicy,
           candidateAnalysis: candidate.candidateAnalysis,
         },
-        mask, width: snapshot.inputVersion.width, height: snapshot.inputVersion.height, pixels: candidate.pixels, dataUrl: candidate.dataUrl,
-      },
+        mask, pixels: candidate.pixels, dataUrl: candidate.dataUrl, width: snapshot.inputVersion.width, height: snapshot.inputVersion.height,
+      };
+    }
+    useEditorStore.setState({
+      preview,
       generativeState: { status: "preview", snapshot, error: null, retryable: false },
     });
     return true;

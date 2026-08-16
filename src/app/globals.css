@@ -30,5 +30,32 @@ button, select, input, textarea { transition: border-color 140ms ease, backgroun
 .tool-lasso canvas, .tool-brush canvas, .tool-eraser canvas { cursor: crosshair; }
 .tool-pan canvas { cursor: grab; }
 .tool-pan canvas:active { cursor: grabbing; }
-.tool-crop canvas { cursor: crosshair; }
-.tool-text canvas, .tool-watermark canvas { cursor: move; }
+
+@keyframes inspector-enter {
+  from { opacity: 0; transform: translateX(-6px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes preview-enter {
+  from { opacity: 0; transform: scale(.995); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes selection-chip-enter {
+  from { opacity: 0; transform: translateY(4px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes transform-dialog-enter {
+  from { opacity: 0; transform: translateY(10px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.inspector-enter { animation: inspector-enter 160ms ease-out both; }
+.preview-enter { animation: preview-enter 180ms ease-out both; }
+.selection-chip { animation: selection-chip-enter 150ms ease-out both; }
+.transform-dialog-enter { animation: transform-dialog-enter 220ms cubic-bezier(.2,.8,.2,1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}

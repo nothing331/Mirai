@@ -30,7 +30,7 @@ The plan assumes approximately 1–2 hours per day. Complete and verify one mile
 | 0. Documentation and scope | Complete | Agent rules, architecture reference, and development plan |
 | 1. Application shell | Complete | Local app with image upload and editor layout |
 | 2. Canvas foundation | Complete | Rendering, stable pan/zoom, reset view, coordinate conversion, and dimension-preserving browser export |
-| 3. Manual masking | Complete | Closed-contour filling with source-space brush and eraser refinement |
+| 3. Manual masking | Complete | Closed-contour filling with source-space selection refinement |
 | 4. Deterministic editing | Complete | Luminance-preserving recolor, controlled feathering, exact preservation, and preview comparison |
 | 5. Generative editing | Complete | Fake and optional OpenAI Remove/Restyle editing with retry and preview |
 | 6. Version history | Complete | Accept, discard, linear undo/redo, branch truncation, and comparison |
@@ -40,9 +40,10 @@ The plan assumes approximately 1–2 hours per day. Complete and verify one mile
 | 10. Reproducible request diagnostics | Complete | Correlated request IDs, persistent processing bundles, artifact comparison, retention, pinning, and agent handoff |
 | 11. Context-aware Replace planning | Complete | Multimodal structured planning, planner failure isolation, two-call diagnostics, and history correlation |
 | 12. Full-candidate review | Complete | Approximate focus semantics, full-candidate default, optional protected compositing, scope diagnosis, and change-map evidence |
-| 13. Local transform workspace | Complete | Mode navigation plus crop, resize, quarter-turn rotate, flip, live source-space drafts, and dimension-aware history |
-| 14. Text and watermark overlays | Complete | Editable text, visible text watermarks, transparent PNG logo assets, anchored/free placement, flatten-on-accept, and persistence |
-| 15. Expanded workflow validation | Complete | Transform and overlay unit coverage, full browser workflow, save/reopen, undo/redo, and dimension-correct export |
+| 13. Image-first workspace UI | Complete | Compact tool rail, contextual inspector, global command header, responsive layout, keyboard tools, and state-driven review/failure presentation |
+| 14. Focused direct canvas tools | Complete | Lasso-owned generation, direct paint drafts, draft-only erasing, and inspector-free hand navigation |
+| 15. Full-image Transform | Complete | Versioned visual presets, local Monochrome, source-content planning, maskless generation, aspect enforcement, semantic fidelity review, persistence, and diagnostics |
+| 16. Smart Extend | Complete | Versioned social formats, cached scene analysis, deterministic Smart Reframe, low-quality outpainting, exact retained-core compositing, dimension-changing history, and frame preview |
 
 Update this table whenever a milestone begins or completes.
 
@@ -95,7 +96,7 @@ The image can be navigated without losing its authoritative source dimensions.
 ### Build
 
 - add a closed-contour lasso that fills its enclosed region
-- add brush and eraser modes
+- add Lasso-owned Add and Subtract refinement modes
 - add brush-size control
 - render a translucent selection overlay
 - add clear-selection behavior
@@ -104,13 +105,13 @@ The image can be navigated without losing its authoritative source dimensions.
 
 ### Deliverable
 
-A user can draw around an area, see the enclosed region filled, refine it with a brush or eraser, and produce a mask aligned with the source image.
+A user can draw around an area, see the enclosed region filled, refine it without leaving Lasso, and produce a mask aligned with the source image.
 
 ### Completion gate
 
 - mask width and height equal input-image dimensions
 - closed contours select their interior rather than only their outline
-- brush placement remains correct after pan and zoom
+- refinement placement remains correct after pan and zoom
 - empty masks are detected
 - mask tests cover image edges and different aspect ratios
 
@@ -219,7 +220,7 @@ A user can close the application, reopen a project, continue editing, and export
 
 - upload works for supported image formats
 - pan and zoom remain stable
-- brush and eraser selection is understandable
+- Lasso selection and refinement are understandable
 - deterministic recoloring works
 - at least one generative edit works
 - review mode preserves the complete normalized AI proposal
@@ -231,7 +232,7 @@ A user can close the application, reopen a project, continue editing, and export
 
 ## Next development sessions
 
-The v0.1 engineering milestones, full-candidate review policy, context-aware Replace planner, and reproducible diagnostic workflow are complete. When an image result looks wrong, pin its request in the diagnostics drawer and use “Copy for coding agent” before changing the pipeline. Future work should begin from that evidence and preserve the distinction between approximate review selections and explicit protected boundaries.
+The v0.1 engineering milestones, focused direct tools, image-first workspace shell, full-candidate review policy, context-aware Replace planner, full-image Transform workflow, and reproducible diagnostic workflow are complete. New editor features should enter through the tool rail, contextual inspector, global command menu, dialog, or supporting drawer instead of adding permanent sidebar sections. Keep one primary responsibility per tool; place submodes such as Add/Subtract inside the owning workflow. When an image result looks wrong, pin its request in the diagnostics drawer and use “Copy for coding agent” before changing the pipeline.
 
 ## Plan maintenance
 

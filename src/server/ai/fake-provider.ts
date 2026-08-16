@@ -11,7 +11,7 @@ export class FakeImageEditProvider implements ImageEditProvider {
     await diagnostics?.beginProviderCall("image-editor", "fake", "fake-image-editor");
     await diagnostics?.event("provider-preparation", "Prepared deterministic fake-provider inputs.");
     await diagnostics?.artifact("provider-input.png", request.imagePng, "image/png");
-    await diagnostics?.artifact("provider-mask.png", request.maskPng, "image/png");
+    if (request.maskPng) await diagnostics?.artifact("provider-mask.png", request.maskPng, "image/png");
     await diagnostics?.metadata({
       providerInstruction: request.prompt,
       providerDimensions: { width: request.width, height: request.height },
@@ -30,7 +30,9 @@ export class FakeImageEditProvider implements ImageEditProvider {
     }
 
     const image = await sharp(request.imagePng).ensureAlpha().resize(request.width, request.height, { fit: "fill" }).raw().toBuffer();
-    const mask = await sharp(request.maskPng).ensureAlpha().resize(request.width, request.height, { fit: "fill" }).raw().toBuffer();
+    const mask = request.maskPng
+      ? await sharp(request.maskPng).ensureAlpha().resize(request.width, request.height, { fit: "fill" }).raw().toBuffer()
+      : Buffer.alloc(request.width * request.height * 4, 255);
     const candidate = Buffer.from(image);
     for (let index = 0; index < request.width * request.height; index += 1) {
       const pixel = index * 4;
