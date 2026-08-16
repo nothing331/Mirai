@@ -316,6 +316,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   clearSelection: () => set((state) => state.selectionMask ? {
     selectionMask: createMask(state.selectionMask.width, state.selectionMask.height),
     selectionId: crypto.randomUUID(),
+    selectionMode: "draw",
     preview: null,
     generativeState: idleGenerativeState,
     selectionDiagnostics: null,

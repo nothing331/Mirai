@@ -333,6 +333,16 @@ describe("filled selection preview and acceptance", () => {
     expect(useEditorStore.getState().preview).toBeNull();
   });
 
+  it("returns to closed-shape drawing when a refined selection is cleared", () => {
+    useEditorStore.getState().fillSelection(firstPixelContour);
+    useEditorStore.getState().setSelectionMode("subtract");
+    useEditorStore.getState().clearSelection();
+
+    const state = useEditorStore.getState();
+    expect(state.selectionMode).toBe("draw");
+    expect(state.selectionMask?.data.every((alpha) => alpha === 0)).toBe(true);
+  });
+
   it("keeps brush and eraser gestures outside history until paint is applied", () => {
     useEditorStore.getState().setColor("#ff0000");
     useEditorStore.getState().applyPaintStroke([{ x: 0, y: 0 }]);
