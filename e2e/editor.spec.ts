@@ -9,6 +9,10 @@ test("fake asset generator creates a transparent, auto-saved project with no edi
   const dialog = page.getByRole("dialog", { name: "Create with AI" });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByText("One low-quality result", { exact: false })).toBeVisible();
+  await expect(dialog.getByRole("tab", { name: "Logo Mark" })).toHaveAttribute("aria-selected", "true");
+  await expect(dialog.getByRole("tab", { name: "Icon" })).toBeVisible();
+  await expect(dialog.getByRole("tab", { name: "Create Image" })).toBeVisible();
+  await expect(dialog.getByRole("tab", { name: /Transform/ })).toHaveCount(0);
   await expect(dialog.getByRole("button", { name: "Auto" })).toHaveAttribute("aria-pressed", "true");
   await expect(dialog.getByLabel("Color 1")).toHaveCount(0);
   await dialog.getByRole("button", { name: "Custom" }).click();
@@ -32,44 +36,44 @@ test("fake asset generator creates a transparent, auto-saved project with no edi
   await expect(diagnostics.getByText("A1 / Ready result")).toBeVisible();
 });
 
-test("AI creator generates one landscape image and transforms one uploaded reference", async ({ page }) => {
+test("AI creator applies a treatment and destination format to one complete image", async ({ page }) => {
   await page.goto("/");
   await page.getByTestId("rail-asset-generator").click();
   const dialog = page.getByRole("dialog", { name: "Create with AI" });
 
-  await dialog.getByRole("tab", { name: "Generate image" }).click();
-  await dialog.getByRole("button", { name: /Landscape/ }).click();
-  await dialog.getByTestId("asset-description").fill("A sunlit reading room filled with plants, editorial photography");
+  await dialog.getByRole("tab", { name: "Create Image" }).click();
+  await expect(dialog.getByRole("button", { name: /Auto/ })).toHaveAttribute("aria-pressed", "true");
+  await dialog.getByRole("button", { name: /Sketch/ }).click();
+  await dialog.getByRole("button", { name: /Story \/ Reel/ }).click();
+  await dialog.getByTestId("asset-description").fill("Mount Everest at sunrise");
+  await expect(dialog.getByTestId("asset-description")).toHaveValue("Mount Everest at sunrise");
   await dialog.getByTestId("generate-assets").click();
   const generated = dialog.getByTestId("asset-candidate-1");
   await expect(generated).toBeVisible();
-  await expect(generated.getByText("1536 × 1024")).toBeVisible();
+  await expect(generated.getByText("720 × 1280")).toBeVisible();
   await expect(generated.getByText("Complete PNG")).toBeVisible();
-
-  await dialog.getByRole("tab", { name: "Transform image" }).click();
-  await dialog.getByTestId("transform-source-input").evaluate(async (input: HTMLInputElement) => {
-    const canvas = document.createElement("canvas");
-    canvas.width = 40;
-    canvas.height = 30;
-    const context = canvas.getContext("2d")!;
-    context.fillStyle = "#2878b8";
-    context.fillRect(0, 0, 40, 30);
-    context.fillStyle = "#d8f441";
-    context.fillRect(10, 6, 20, 18);
-    const blob = await new Promise<Blob>((resolve) => canvas.toBlob((value) => resolve(value!), "image/png"));
-    const transfer = new DataTransfer();
-    transfer.items.add(new File([blob], "reference.png", { type: "image/png" }));
-    input.files = transfer.files;
-    input.dispatchEvent(new Event("change", { bubbles: true }));
-  });
-  await expect(dialog.getByText("reference.png")).toBeVisible();
-  await dialog.getByRole("button", { name: /Portrait/ }).click();
-  await dialog.getByTestId("asset-description").fill("Turn this into a warm paper-cut illustration while preserving the composition");
-  await dialog.getByTestId("generate-assets").click();
-  const transformed = dialog.getByTestId("asset-candidate-1");
-  await expect(transformed).toBeVisible();
-  await expect(transformed.getByText("1024 × 1536")).toBeVisible();
   await expect(dialog.getByTestId("asset-candidate-2")).toHaveCount(0);
+  await expect(dialog.getByTestId("transform-source-input")).toHaveCount(0);
+
+  await page.route("**/api/asset-generations", async (route) => {
+    if (route.request().method() === "POST") {
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Temporary provider failure.", retryable: true, imageGenerationAttempted: true }) });
+      return;
+    }
+    await route.continue();
+  });
+  await dialog.getByTestId("generate-assets").click();
+  await expect(dialog.getByRole("alert")).toContainText("Temporary provider failure. You can try again.");
+  await expect(generated).toBeVisible();
+  await page.unroute("**/api/asset-generations");
+
+  await dialog.getByTestId("use-generated-asset").click();
+  const savedOption = page.getByLabel("Open saved project").locator("option", { hasText: "Mount Everest at sunrise image" });
+  await expect(savedOption).toHaveCount(1);
+  const savedProjectId = await savedOption.getAttribute("value");
+  const savedProject = await page.evaluate(async (projectId) => fetch(`/api/projects/${projectId}`).then((response) => response.json()), savedProjectId);
+  expect(savedProject.origin).toMatchObject({ creationMode: "image", treatment: "sketch", format: "story-reel", width: 720, height: 1280 });
+  expect(savedProject.operations).toHaveLength(0);
 });
 
 async function uploadTestImage(page: Page) {

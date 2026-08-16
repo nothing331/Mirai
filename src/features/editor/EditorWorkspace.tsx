@@ -186,11 +186,14 @@ export function EditorWorkspace() {
       projectOrigin: {
         kind: "asset-generation",
         requestId: candidate.response.requestId,
-        mode: candidate.request.mode,
+        creationMode: candidate.request.mode,
         ...(markBrief ? { assetType: markBrief.assetType, style: markBrief.style, colorMode: markBrief.colorMode } : {}),
+        ...(candidate.request.mode === "image" ? { treatment: candidate.request.treatment } : {}),
         description,
         colors: markBrief?.colors ?? [],
-        size: candidate.request.size,
+        format: candidate.request.format,
+        width: candidate.width,
+        height: candidate.height,
         provider: candidate.response.provider,
         model: candidate.response.model,
         quality: candidate.response.quality,
@@ -248,6 +251,6 @@ export function EditorWorkspace() {
 function generatedProjectName(description: string, mode: "mark" | "image" | "transform", assetType?: "icon" | "logo-mark"): string {
   const compact = description.trim().replace(/\s+/g, " ").slice(0, 42).replace(/[.,;:!?-]+$/, "");
   const fallback = mode === "mark" ? assetType === "icon" ? "Generated icon" : "Generated mark" : mode === "image" ? "Generated image" : "Transformed image";
-  const suffix = mode === "mark" ? assetType === "icon" ? " icon" : " mark" : mode === "transform" ? " transformation" : "";
+  const suffix = mode === "mark" ? assetType === "icon" ? " icon" : " mark" : " image";
   return `${compact || fallback}${compact ? suffix : ""}`;
 }
