@@ -43,7 +43,7 @@ The plan assumes approximately 1–2 hours per day. Complete and verify one mile
 | 13. Image-first workspace UI | Complete | Compact tool rail, contextual inspector, global command header, responsive layout, keyboard tools, and state-driven review/failure presentation |
 | 14. Focused direct canvas tools | Complete | Lasso-owned generation, direct paint drafts, draft-only erasing, and inspector-free hand navigation |
 | 15. Icon and logo-mark generation | Complete | Structured brief, one-result generation, local transparency, project provenance, persistence, diagnostics, and fake-environment verification |
-| 16. Unified AI creation studio | Complete | One-result low-quality Mark, Image, and Transform modes with three output shapes, one temporary reference, shared provenance, diagnostics, and browser verification |
+| 16. Purpose-led AI image creation | Complete | Logo Mark, Icon, and Create Image choices with server-owned treatments, four destination formats, one low-quality result, provenance, diagnostics, and browser verification |
 
 Update this table whenever a milestone begins or completes.
 
@@ -232,7 +232,7 @@ A user can close the application, reopen a project, continue editing, and export
 
 ## Next development sessions
 
-The v0.1 engineering milestones and the first focused asset-generation workflow are complete. Icon/logo generation now enters through a dialog, spends at most one image call per batch, keeps candidates temporary, and converges on the existing project/editor pipeline only after selection. Future work should measure concept-selection rate and transparency warnings before adding wordmarks, vectorization, persistent galleries, or more provider calls. New editor features should enter through the tool rail, contextual inspector, global command menu, dialog, or supporting drawer instead of adding permanent sidebar sections. Keep one primary responsibility per tool; place submodes such as Add/Subtract inside the owning workflow. When an image result looks wrong, pin its request in the diagnostics drawer and use “Copy for coding agent” before changing the pipeline.
+The v0.1 engineering milestones and the first focused asset-generation workflows are complete. Create with AI offers Logo Mark, Icon, and Create Image; every request spends at most one image call, keeps only the latest successful result temporarily, and converges on the existing project/editor pipeline only after selection. Create Image uses server-owned treatment and destination registries rather than reference upload or custom dimensions. Future work should measure result-use rate and transparency warnings before adding references, wordmarks, vectorization, persistent galleries, upscaling, or more provider calls. New editor features should enter through the tool rail, contextual inspector, global command menu, dialog, or supporting drawer instead of adding permanent sidebar sections. Keep one primary responsibility per tool; place submodes such as Add/Subtract inside the owning workflow. When an image result looks wrong, pin its request in the diagnostics drawer and use “Copy for coding agent” before changing the pipeline.
 
 ## Plan maintenance
 

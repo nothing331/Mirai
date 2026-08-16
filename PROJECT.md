@@ -12,7 +12,7 @@ The project initially targets normal users rather than professional design workf
 
 ## Current state
 
-The editor supports PNG/JPEG upload plus a unified AI creation studio for icon/logo marks, text-to-image creation, and whole-image transformation from one reference. Every creation request returns one low-quality result; marks receive local matte removal, while complete image and transform results remain intact. The editor also supports pan and zoom, conservatively cleaned Lasso selection with internal Add/Subtract refinement, direct non-destructive paint drafts, draft-only erasing, deterministic selection recoloring, and generative Remove/Replace/Restyle operations. The image-first workspace gives each canvas tool one job: Lasso owns selection edits and generation, Brush paints, Eraser corrects pending paint, and Hand pans without an inspector. Replace requests use a low-cost multimodal intent planner to turn short instructions into scene-aware structured plans before image generation. Generative processing uses provider-neutral server boundaries, deterministic fake implementations by default, and optional OpenAI adapters. The complete normalized provider candidate is the default edit-review preview; an explicit protected mode retains exact mask compositing. Each provider request creates a reproducible diagnostic bundle. Accepted edit operations, versions, and masks form linear immutable history with undo/redo, and projects can be saved to local SQLite metadata plus immutable filesystem assets, reopened, and exported as PNG or JPEG.
+The editor supports PNG/JPEG upload plus a unified AI creation studio for icon/logo marks and complete text-to-image creation. Every creation request returns one low-quality result; marks receive local matte removal, while complete images remain intact. Create Image combines a user prompt with an application-owned visual treatment and one of four destination formats whose dimensions are resolved on the server. The editor also supports pan and zoom, conservatively cleaned Lasso selection with internal Add/Subtract refinement, direct non-destructive paint drafts, draft-only erasing, deterministic selection recoloring, and generative Remove/Replace/Restyle operations. The image-first workspace gives each canvas tool one job: Lasso owns selection edits and generation, Brush paints, Eraser corrects pending paint, and Hand pans without an inspector. Replace requests use a low-cost multimodal intent planner to turn short instructions into scene-aware structured plans before image generation. Generative processing uses provider-neutral server boundaries, deterministic fake implementations by default, and optional OpenAI adapters. The complete normalized provider candidate is the default edit-review preview; an explicit protected mode retains exact mask compositing. Each provider request creates a reproducible diagnostic bundle. Accepted edit operations, versions, and masks form linear immutable history with undo/redo, and projects can be saved to local SQLite metadata plus immutable filesystem assets, reopened, and exported as PNG or JPEG.
 
 ## v0.1 scope
 
@@ -25,7 +25,7 @@ Upload → canvas → manual mask → local recolor → generative edit → hist
 ### Included
 
 - PNG and JPEG upload
-- one-result, low-quality AI creation for structured marks, text-to-image scenes, and whole-image transformations
+- one-result, low-quality AI creation for structured marks and complete images with visual treatments and destination formats
 - image canvas with pan and zoom
 - conservative closed-contour cleanup with diagnostics and Lasso-owned Add/Subtract refinement
 - direct color painting with draft-only erasing and one-step Apply/Discard
@@ -287,7 +287,7 @@ These decisions are intentionally kept here until the project becomes large enou
 | Request diagnostics | Structured local manifests plus directly inspectable artifacts | Accepted |
 | Replace intent planning | Structured multimodal plan before image generation | Accepted |
 | Generative selection semantics | Approximate focus by default; explicit protected boundary available | Accepted |
-| AI creation cost boundary | One low-quality result per confirmed call; three common output shapes; local matte removal only for marks; persist only the chosen original | Accepted |
+| AI creation cost boundary | One low-quality result per confirmed call; four server-owned destination formats; local matte removal only for marks; persist only the chosen original | Accepted |
 
 ## Code documentation policy
 
